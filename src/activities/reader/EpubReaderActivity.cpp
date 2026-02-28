@@ -16,6 +16,7 @@
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
 #include "MappedInputManager.h"
+#include "OrientationHelper.h"
 #include "QrDisplayActivity.h"
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
@@ -37,27 +38,6 @@ int clampPercent(int percent) {
   return percent;
 }
 
-// Apply the logical reader orientation to the renderer.
-// This centralizes orientation mapping so we don't duplicate switch logic elsewhere.
-void applyReaderOrientation(GfxRenderer& renderer, const uint8_t orientation) {
-  switch (orientation) {
-    case CrossPointSettings::ORIENTATION::PORTRAIT:
-      renderer.setOrientation(GfxRenderer::Orientation::Portrait);
-      break;
-    case CrossPointSettings::ORIENTATION::LANDSCAPE_CW:
-      renderer.setOrientation(GfxRenderer::Orientation::LandscapeClockwise);
-      break;
-    case CrossPointSettings::ORIENTATION::INVERTED:
-      renderer.setOrientation(GfxRenderer::Orientation::PortraitInverted);
-      break;
-    case CrossPointSettings::ORIENTATION::LANDSCAPE_CCW:
-      renderer.setOrientation(GfxRenderer::Orientation::LandscapeCounterClockwise);
-      break;
-    default:
-      break;
-  }
-}
-
 }  // namespace
 
 void EpubReaderActivity::onEnter() {
@@ -67,9 +47,8 @@ void EpubReaderActivity::onEnter() {
     return;
   }
 
-  // Configure screen orientation based on settings
-  // NOTE: This affects layout math and must be applied before any render calls.
-  applyReaderOrientation(renderer, SETTINGS.orientation);
+  // Screen orientation (both renderer and input) is already set by
+  // enterNewActivity() → OrientationHelper::applyOrientation() before onEnter().
 
   epub->setupCacheDir();
 
@@ -519,8 +498,8 @@ void EpubReaderActivity::applyOrientation(const uint8_t orientation) {
     SETTINGS.orientation = orientation;
     SETTINGS.saveToFile();
 
-    // Update renderer orientation to match the new logical coordinate system.
-    applyReaderOrientation(renderer, SETTINGS.orientation);
+    // Update renderer and input orientation to match the new coordinate system.
+    OrientationHelper::applyOrientation(renderer, mappedInput, this);
 
     // Reset section to force re-layout in the new orientation.
     section.reset();
