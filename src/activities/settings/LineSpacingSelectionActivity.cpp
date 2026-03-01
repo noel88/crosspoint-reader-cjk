@@ -63,18 +63,22 @@ void LineSpacingSelectionActivity::loop() {
 void LineSpacingSelectionActivity::render(Activity::RenderLock&&) {
   renderer.clearScreen();
 
-  renderer.drawCenteredText(UI_12_FONT_ID, 15, tr(STR_LINE_SPACING), true, EpdFontFamily::BOLD);
+  const auto metrics = UITheme::getInstance().getMetrics();
+  const bool isPortraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int hintGutterHeight = isPortraitInverted ? (metrics.buttonHintsHeight + metrics.verticalSpacing) : 0;
+
+  renderer.drawCenteredText(UI_12_FONT_ID, 15 + hintGutterHeight, tr(STR_LINE_SPACING), true, EpdFontFamily::BOLD);
 
   char valueBuf[16];
   snprintf(valueBuf, sizeof(valueBuf), "%.2fx", static_cast<float>(value) / 100.0f);
   const std::string valueText = valueBuf;
-  renderer.drawCenteredText(UI_12_FONT_ID, 90, valueText.c_str(), true, EpdFontFamily::BOLD);
+  renderer.drawCenteredText(UI_12_FONT_ID, 90 + hintGutterHeight, valueText.c_str(), true, EpdFontFamily::BOLD);
 
   const int screenWidth = renderer.getScreenWidth();
   constexpr int barWidth = 360;
   constexpr int barHeight = 16;
   const int barX = (screenWidth - barWidth) / 2;
-  const int barY = 140;
+  const int barY = 140 + hintGutterHeight;
 
   renderer.drawRect(barX, barY, barWidth, barHeight);
 
@@ -88,12 +92,7 @@ void LineSpacingSelectionActivity::render(Activity::RenderLock&&) {
   const int knobX = barX + 2 + fillWidth - 2;
   renderer.fillRect(knobX, barY - 4, 4, barHeight + 8, true);
 
-  char rangeBuf[32];
-  snprintf(rangeBuf, sizeof(rangeBuf), "%.1fx - %.1fx", static_cast<float>(CrossPointSettings::LINE_SPACING_MIN) / 100.0f,
-           static_cast<float>(CrossPointSettings::LINE_SPACING_MAX) / 100.0f);
-  const std::string rangeText = rangeBuf;
-  renderer.drawCenteredText(SMALL_FONT_ID, barY + 30, rangeText.c_str(), true);
-  renderer.drawCenteredText(SMALL_FONT_ID, barY + 45, "< >:0.01x  ^ v:0.10x", true);
+  renderer.drawCenteredText(SMALL_FONT_ID, barY + 30, tr(STR_PERCENT_STEP_HINT), true);
 
   const auto labels = mappedInput.mapLabels(tr(STR_BACK), tr(STR_SELECT), "-", "+");
   GUI.drawButtonHints(renderer, labels.btn1, labels.btn2, labels.btn3, labels.btn4);

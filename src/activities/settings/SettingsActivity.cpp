@@ -299,24 +299,29 @@ void SettingsActivity::render(Activity::RenderLock&&) {
   const auto pageHeight = renderer.getScreenHeight();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
+  const bool isPortraitInverted = renderer.getOrientation() == GfxRenderer::Orientation::PortraitInverted;
+  const int hintGutterHeight = isPortraitInverted ? (metrics.buttonHintsHeight + metrics.verticalSpacing) : 0;
 
-  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, pageWidth, metrics.headerHeight}, tr(STR_SETTINGS_TITLE),
-                 CROSSPOINT_VERSION);
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding + hintGutterHeight, pageWidth, metrics.headerHeight},
+                 tr(STR_SETTINGS_TITLE), CROSSPOINT_VERSION);
 
   std::vector<TabInfo> tabs;
   tabs.reserve(categoryCount);
   for (int i = 0; i < categoryCount; i++) {
     tabs.push_back({I18N.get(categoryNames[i]), selectedCategoryIndex == i});
   }
-  GUI.drawTabBar(renderer, Rect{0, metrics.topPadding + metrics.headerHeight, pageWidth, metrics.tabBarHeight}, tabs,
-                 selectedSettingIndex == 0);
+  GUI.drawTabBar(renderer,
+                 Rect{0, metrics.topPadding + hintGutterHeight + metrics.headerHeight, pageWidth, metrics.tabBarHeight},
+                 tabs, selectedSettingIndex == 0);
 
   const auto& settings = *currentSettings;
   GUI.drawList(
       renderer,
-      Rect{0, metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing, pageWidth,
-           pageHeight - (metrics.topPadding + metrics.headerHeight + metrics.tabBarHeight + metrics.buttonHintsHeight +
-                         metrics.verticalSpacing * 2)},
+      Rect{0, metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.tabBarHeight + metrics.verticalSpacing,
+           pageWidth,
+           pageHeight -
+               (metrics.topPadding + hintGutterHeight + metrics.headerHeight + metrics.tabBarHeight +
+                metrics.buttonHintsHeight + metrics.verticalSpacing * 2)},
       settingsCount, selectedSettingIndex - 1,
       [&settings](int index) { return std::string(I18N.get(settings[index].nameId)); }, nullptr, nullptr,
       [&settings](int i) {
