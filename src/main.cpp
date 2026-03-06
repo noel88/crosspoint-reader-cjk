@@ -9,6 +9,7 @@
 #include <I18n.h>
 #include <Logging.h>
 #include <SPI.h>
+#include <SdFontManager.h>
 #include <builtinFonts/all.h>
 
 #include <cstring>
@@ -253,6 +254,10 @@ void setup() {
   I18N.loadSettings();
   KOREADER_STORE.loadFromFile();
   UITheme::getInstance().reload();
+
+  // Scan SD card fonts (.epdfont files)
+  SdFontManager::getInstance().scanFonts();
+  SdFontManager::getInstance().loadSettings();
   ButtonNavigator::setMappedInputManager(mappedInputManager);
 
   switch (gpio.getWakeupReason()) {
