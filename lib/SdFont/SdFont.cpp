@@ -1,7 +1,7 @@
 #include "SdFont.h"
 
 #include <HalStorage.h>
-#include <HardwareSerial.h>
+#include <Logging.h>
 #include <Utf8.h>
 
 #include <algorithm>
@@ -31,7 +31,7 @@ bool SdFont::load(const char* filepath) {
   // Open font file
   _fontFile = Storage.open(filepath, O_RDONLY);
   if (!_fontFile) {
-    Serial.printf("[SDFONT] Failed to open: %s\n", filepath);
+    LOG_ERR("SDFONT", "Failed to open: %s", filepath);
     return false;
   }
 
@@ -70,8 +70,7 @@ bool SdFont::load(const char* filepath) {
   _fontData.ligaturePairCount = 0;
 
   _isLoaded = true;
-  Serial.printf("[SDFONT] Loaded: %s (advanceY=%d, ascender=%d, descender=%d)\n", _fontName, _advanceY, _ascender,
-                _descender);
+  LOG_DBG("SDFONT", "Loaded: %s (advanceY=%d, ascender=%d, descender=%d)", _fontName, _advanceY, _ascender, _descender);
   return true;
 }
 
@@ -98,17 +97,17 @@ bool SdFont::loadHeader() {
   EpdfontHeader header;
 
   if (_fontFile.read(&header, sizeof(header)) != sizeof(header)) {
-    Serial.printf("[SDFONT] Failed to read header\n");
+    LOG_ERR("SDFONT", "Failed to read header");
     return false;
   }
 
   if (header.magic != EPDFONT_MAGIC) {
-    Serial.printf("[SDFONT] Invalid magic: 0x%08X\n", header.magic);
+    LOG_ERR("SDFONT", "Invalid magic: 0x%08X", header.magic);
     return false;
   }
 
   if (header.version > 1) {
-    Serial.printf("[SDFONT] Unsupported version: %d\n", header.version);
+    LOG_ERR("SDFONT", "Unsupported version: %d", header.version);
     return false;
   }
 
@@ -125,7 +124,7 @@ bool SdFont::loadHeader() {
     _intervals = new EpdfontInterval[_intervalCount];
 
     if (!_fontFile.seek(header.intervalsOffset)) {
-      Serial.printf("[SDFONT] Failed to seek to intervals\n");
+      LOG_ERR("SDFONT", "Failed to seek to intervals");
       delete[] _intervals;
       _intervals = nullptr;
       return false;
@@ -133,7 +132,7 @@ bool SdFont::loadHeader() {
 
     size_t intervalBytes = _intervalCount * sizeof(EpdfontInterval);
     if (_fontFile.read(_intervals, intervalBytes) != (int)intervalBytes) {
-      Serial.printf("[SDFONT] Failed to read intervals\n");
+      LOG_ERR("SDFONT", "Failed to read intervals");
       delete[] _intervals;
       _intervals = nullptr;
       return false;
@@ -225,7 +224,7 @@ bool SdFont::readGlyphFromFile(uint32_t codepoint, CacheEntry* entry) {
 
   // Check bitmap size fits in cache
   if (fileGlyph.dataLength > MAX_BITMAP_BYTES) {
-    Serial.printf("[SDFONT] Glyph U+%04X bitmap too large: %d bytes\n", codepoint, fileGlyph.dataLength);
+    LOG_ERR("SDFONT", "Glyph U+%04X bitmap too large: %u bytes", codepoint, fileGlyph.dataLength);
     return false;
   }
 

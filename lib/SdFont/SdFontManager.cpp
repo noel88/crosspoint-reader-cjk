@@ -1,10 +1,23 @@
 #include "SdFontManager.h"
 
 #include <HalStorage.h>
-#include <HardwareSerial.h>
+#include <Logging.h>
 #include <Serialization.h>
 
+#include <cctype>
 #include <cstring>
+
+// Case-insensitive string comparison (avoid strings.h dependency)
+static int strcasecmpLocal(const char* s1, const char* s2) {
+  while (*s1 && *s2) {
+    int c1 = tolower(static_cast<unsigned char>(*s1));
+    int c2 = tolower(static_cast<unsigned char>(*s2));
+    if (c1 != c2) return c1 - c2;
+    s1++;
+    s2++;
+  }
+  return tolower(static_cast<unsigned char>(*s1)) - tolower(static_cast<unsigned char>(*s2));
+}
 
 // Out-of-class definitions for static constexpr members
 constexpr int SdFontManager::MAX_FONTS;
@@ -20,19 +33,20 @@ SdFontManager& SdFontManager::getInstance() {
 void SdFontManager::scanFonts() {
   _fontCount = 0;
 
+  LOG_DBG("SDFONT", "Scanning fonts directory: %s", FONTS_DIR);
+
   HalFile dir = Storage.open(FONTS_DIR, O_RDONLY);
   if (!dir) {
-    Serial.printf("[SDFONT_MGR] Cannot open fonts directory: %s\n", FONTS_DIR);
+    LOG_DBG("SDFONT", "Cannot open fonts directory: %s", FONTS_DIR);
     return;
   }
 
   if (!dir.isDirectory()) {
-    Serial.printf("[SDFONT_MGR] %s is not a directory\n", FONTS_DIR);
+    LOG_DBG("SDFONT", "%s is not a directory", FONTS_DIR);
     dir.close();
     return;
   }
 
-  dir.rewindDirectory();
   HalFile entry = dir.openNextFile();
   while (_fontCount < MAX_FONTS && entry) {
     if (entry.isDirectory()) {
@@ -46,18 +60,21 @@ void SdFontManager::scanFonts() {
     entry.close();
 
     // Check .epdfont extension (case insensitive)
-    const char* ext = strstr(filename, ".epdfont");
-    if (!ext) {
-      ext = strstr(filename, ".EPDFONT");
+    size_t len = strlen(filename);
+    bool isEpdfont = false;
+    if (len > 8) {
+      const char* ext = filename + len - 8;
+      isEpdfont = (strcasecmpLocal(ext, ".epdfont") == 0);
     }
-    if (!ext) {
+
+    if (!isEpdfont) {
       entry = dir.openNextFile();
       continue;
     }
 
     SdFontInfo& info = _fonts[_fontCount];
     if (parseFilename(filename, info)) {
-      Serial.printf("[SDFONT_MGR] Found font: %s (%dpt)\n", info.name, info.size);
+      LOG_DBG("SDFONT", "Found font: %s (%dpt)", info.name, info.size);
       _fontCount++;
     }
 
@@ -65,7 +82,7 @@ void SdFontManager::scanFonts() {
   }
 
   dir.close();
-  Serial.printf("[SDFONT_MGR] Scan complete: %d fonts found\n", _fontCount);
+  LOG_DBG("SDFONT", "Scan complete: %d fonts found", _fontCount);
 }
 
 bool SdFontManager::parseFilename(const char* filename, SdFontInfo& info) {
@@ -114,38 +131,53 @@ const SdFontInfo* SdFontManager::getFontInfo(int index) const {
   return &_fonts[index];
 }
 
-void SdFontManager::selectFont(int index) {
-  if (index == _selectedIndex) {
+void SdFontManager::selectFont(int index, SdFontType type) {
+  int& selectedIndex = (type == SdFontType::UI) ? _uiSelectedIndex : _selectedIndex;
+
+  if (index == selectedIndex) {
     return;
   }
 
-  _selectedIndex = index;
+  selectedIndex = index;
 
   if (index >= 0) {
-    loadSelectedFont();
+    loadSelectedFont(type);
   } else {
-    _activeFont.unload();
+    if (type == SdFontType::UI) {
+      _uiActiveFont.unload();
+    } else {
+      _activeFont.unload();
+    }
   }
 
   saveSettings();
 }
 
-bool SdFontManager::loadSelectedFont() {
-  _activeFont.unload();
+bool SdFontManager::loadSelectedFont(SdFontType type) {
+  SdFont& activeFont = (type == SdFontType::UI) ? _uiActiveFont : _activeFont;
+  int selectedIndex = (type == SdFontType::UI) ? _uiSelectedIndex : _selectedIndex;
 
-  if (_selectedIndex < 0 || _selectedIndex >= _fontCount) {
+  activeFont.unload();
+
+  if (selectedIndex < 0 || selectedIndex >= _fontCount) {
     return false;
   }
 
   char filepath[80];
-  snprintf(filepath, sizeof(filepath), "%s/%s", FONTS_DIR, _fonts[_selectedIndex].filename);
+  snprintf(filepath, sizeof(filepath), "%s/%s", FONTS_DIR, _fonts[selectedIndex].filename);
 
-  return _activeFont.load(filepath);
+  return activeFont.load(filepath);
 }
 
-SdFont* SdFontManager::getActiveFont() {
-  if (_selectedIndex >= 0 && _activeFont.isLoaded()) {
-    return &_activeFont;
+SdFont* SdFontManager::getActiveFont(SdFontType type) {
+  if (type == SdFontType::UI) {
+    if (_uiSelectedIndex >= 0 && _uiActiveFont.isLoaded()) {
+      return &_uiActiveFont;
+    }
+  } else {
+    if (_selectedIndex >= 0 && _activeFont.isLoaded()) {
+      return &_activeFont;
+    }
   }
   return nullptr;
 }
@@ -154,58 +186,90 @@ void SdFontManager::saveSettings() {
   Storage.mkdir("/.crosspoint");
 
   HalFile file;
-  if (!Storage.openFileForWrite("SDFONT_MGR", SETTINGS_FILE, file)) {
-    Serial.printf("[SDFONT_MGR] Failed to save settings\n");
+  if (!Storage.openFileForWrite("SDFONT", SETTINGS_FILE, file)) {
+    LOG_ERR("SDFONT", "Failed to save settings");
     return;
   }
 
   serialization::writePod(file, SETTINGS_VERSION);
-  serialization::writePod(file, _selectedIndex);
 
-  // Save selected font filename (for matching when restoring)
+  // Save reader font selection
+  serialization::writePod(file, _selectedIndex);
   if (_selectedIndex >= 0 && _selectedIndex < _fontCount) {
     serialization::writeString(file, std::string(_fonts[_selectedIndex].filename));
   } else {
     serialization::writeString(file, std::string(""));
   }
 
+  // Save UI font selection (new in v2)
+  serialization::writePod(file, _uiSelectedIndex);
+  if (_uiSelectedIndex >= 0 && _uiSelectedIndex < _fontCount) {
+    serialization::writeString(file, std::string(_fonts[_uiSelectedIndex].filename));
+  } else {
+    serialization::writeString(file, std::string(""));
+  }
+
   file.close();
-  Serial.printf("[SDFONT_MGR] Settings saved\n");
+  LOG_DBG("SDFONT", "Settings saved (reader=%d, ui=%d)", _selectedIndex, _uiSelectedIndex);
 }
 
 void SdFontManager::loadSettings() {
   HalFile file;
-  if (!Storage.openFileForRead("SDFONT_MGR", SETTINGS_FILE, file)) {
-    Serial.printf("[SDFONT_MGR] No settings file, using defaults\n");
+  if (!Storage.openFileForRead("SDFONT", SETTINGS_FILE, file)) {
+    LOG_DBG("SDFONT", "No settings file, using defaults");
     return;
   }
 
   uint8_t version;
   serialization::readPod(file, version);
   if (version > SETTINGS_VERSION) {
-    Serial.printf("[SDFONT_MGR] Settings version mismatch (%d vs %d)\n", version, SETTINGS_VERSION);
+    LOG_ERR("SDFONT", "Settings version mismatch (%d vs %d)", version, SETTINGS_VERSION);
     file.close();
     return;
   }
 
+  // Load reader font selection
   int savedIndex;
   serialization::readPod(file, savedIndex);
 
   std::string savedFilename;
   serialization::readString(file, savedFilename);
 
-  // Find matching font by filename
+  // Find matching reader font by filename
   if (savedIndex >= 0 && !savedFilename.empty()) {
     for (int i = 0; i < _fontCount; i++) {
       if (savedFilename == _fonts[i].filename) {
         _selectedIndex = i;
-        loadSelectedFont();
-        Serial.printf("[SDFONT_MGR] Restored font: %s\n", savedFilename.c_str());
+        loadSelectedFont(SdFontType::READER);
+        LOG_DBG("SDFONT", "Restored reader font: %s", savedFilename.c_str());
         break;
       }
     }
     if (_selectedIndex < 0) {
-      Serial.printf("[SDFONT_MGR] Saved font not found: %s\n", savedFilename.c_str());
+      LOG_DBG("SDFONT", "Saved reader font not found: %s", savedFilename.c_str());
+    }
+  }
+
+  // Load UI font selection (v2+)
+  if (version >= 2) {
+    int savedUiIndex;
+    serialization::readPod(file, savedUiIndex);
+
+    std::string savedUiFilename;
+    serialization::readString(file, savedUiFilename);
+
+    if (savedUiIndex >= 0 && !savedUiFilename.empty()) {
+      for (int i = 0; i < _fontCount; i++) {
+        if (savedUiFilename == _fonts[i].filename) {
+          _uiSelectedIndex = i;
+          loadSelectedFont(SdFontType::UI);
+          LOG_DBG("SDFONT", "Restored UI font: %s", savedUiFilename.c_str());
+          break;
+        }
+      }
+      if (_uiSelectedIndex < 0) {
+        LOG_DBG("SDFONT", "Saved UI font not found: %s", savedUiFilename.c_str());
+      }
     }
   }
 

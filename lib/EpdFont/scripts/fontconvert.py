@@ -18,6 +18,9 @@ parser.add_argument("--2bit", dest="is2Bit", action="store_true", help="generate
 parser.add_argument("--additional-intervals", dest="additional_intervals", action="append", help="Additional code point intervals to export as min,max. This argument can be repeated.")
 parser.add_argument("--compress", dest="compress", action="store_true", help="Compress glyph bitmaps using DEFLATE with group-based compression.")
 parser.add_argument("--force-autohint", dest="force_autohint", action="store_true", help="Force FreeType auto-hinter instead of native font hinting. Improves stem width consistency for fonts with weak or no native TrueType hints.")
+parser.add_argument("--no-base-intervals", dest="no_base_intervals", action="store_true", help="Skip the default Latin/Cyrillic intervals and only use --additional-intervals.")
+parser.add_argument("--skip-kerning", dest="skip_kerning", action="store_true", help="Skip kerning pair extraction (useful for CJK fonts).")
+parser.add_argument("--skip-ligatures", dest="skip_ligatures", action="store_true", help="Skip ligature extraction (useful for CJK fonts).")
 args = parser.parse_args()
 
 GlyphProps = namedtuple("GlyphProps", ["width", "height", "advance_x", "left", "top", "data_length", "data_offset", "code_point"])
@@ -179,7 +182,10 @@ def load_glyph(code_point):
         face_index += 1
     return None
 
-unmerged_intervals = sorted(intervals + add_ints)
+if args.no_base_intervals:
+    unmerged_intervals = sorted(add_ints)
+else:
+    unmerged_intervals = sorted(intervals + add_ints)
 intervals = []
 unvalidated_intervals = []
 for i_start, i_end in unmerged_intervals:
@@ -452,11 +458,13 @@ def extract_kerning_fonttools(font_path, codepoints, ppem):
 ppem = size * 150.0 / 72.0
 
 kern_map = {}  # (leftCp, rightCp) -> adjust
-for face_idx, cps in face_idx_cps.items():
-    font_path = args.fontstack[face_idx]
-    kern_map.update(extract_kerning_fonttools(font_path, cps, ppem))
-
-print(f"kerning: {len(kern_map)} pairs extracted", file=sys.stderr)
+if args.skip_kerning:
+    print(f"kerning: skipped (--skip-kerning)", file=sys.stderr)
+else:
+    for face_idx, cps in face_idx_cps.items():
+        font_path = args.fontstack[face_idx]
+        kern_map.update(extract_kerning_fonttools(font_path, cps, ppem))
+    print(f"kerning: {len(kern_map)} pairs extracted", file=sys.stderr)
 
 # --- Derive class-based kerning from pairs ---
 kern_left_classes = []   # list of (codepoint, classId)
@@ -656,36 +664,39 @@ def extract_ligatures_fonttools(font_path, codepoints):
 
     return pairs
 
-ligature_codepoints = set(cp for cp in all_codepoints
-                          if not (COMBINING_MARKS_START <= cp <= COMBINING_MARKS_END))
-
-# Map ligature codepoints to the font-stack index that serves them
-lig_cp_to_face_idx = {}
-for cp in ligature_codepoints:
-    for face_idx, f in enumerate(font_stack):
-        if f.get_char_index(cp) > 0:
-            lig_cp_to_face_idx[cp] = face_idx
-            break
-
-# Group by face index
-lig_face_idx_cps = {}
-for cp, fi in lig_cp_to_face_idx.items():
-    lig_face_idx_cps.setdefault(fi, set()).add(cp)
-
 ligature_pairs = []
-for face_idx, cps in lig_face_idx_cps.items():
-    font_path = args.fontstack[face_idx]
-    ligature_pairs.extend(extract_ligatures_fonttools(font_path, cps))
+if args.skip_ligatures:
+    print(f"ligatures: skipped (--skip-ligatures)", file=sys.stderr)
+else:
+    ligature_codepoints = set(cp for cp in all_codepoints
+                              if not (COMBINING_MARKS_START <= cp <= COMBINING_MARKS_END))
 
-# Deduplicate (keep first occurrence) and sort
-seen_lig_keys = set()
-unique_ligature_pairs = []
-for packed, lig_cp in ligature_pairs:
-    if packed not in seen_lig_keys:
-        seen_lig_keys.add(packed)
-        unique_ligature_pairs.append((packed, lig_cp))
-ligature_pairs = sorted(unique_ligature_pairs, key=lambda p: p[0])
-print(f"ligatures: {len(ligature_pairs)} pairs extracted", file=sys.stderr)
+    # Map ligature codepoints to the font-stack index that serves them
+    lig_cp_to_face_idx = {}
+    for cp in ligature_codepoints:
+        for face_idx, f in enumerate(font_stack):
+            if f.get_char_index(cp) > 0:
+                lig_cp_to_face_idx[cp] = face_idx
+                break
+
+    # Group by face index
+    lig_face_idx_cps = {}
+    for cp, fi in lig_cp_to_face_idx.items():
+        lig_face_idx_cps.setdefault(fi, set()).add(cp)
+
+    for face_idx, cps in lig_face_idx_cps.items():
+        font_path = args.fontstack[face_idx]
+        ligature_pairs.extend(extract_ligatures_fonttools(font_path, cps))
+
+    # Deduplicate (keep first occurrence) and sort
+    seen_lig_keys = set()
+    unique_ligature_pairs = []
+    for packed, lig_cp in ligature_pairs:
+        if packed not in seen_lig_keys:
+            seen_lig_keys.add(packed)
+            unique_ligature_pairs.append((packed, lig_cp))
+    ligature_pairs = sorted(unique_ligature_pairs, key=lambda p: p[0])
+    print(f"ligatures: {len(ligature_pairs)} pairs extracted", file=sys.stderr)
 
 compress = args.compress
 

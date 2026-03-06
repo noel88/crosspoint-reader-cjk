@@ -11,6 +11,7 @@
 #include <SPI.h>
 #include <SdFontManager.h>
 #include <builtinFonts/all.h>
+#include <cjk_ui_font_10.h>
 
 #include <cstring>
 
@@ -111,16 +112,19 @@ EpdFontFamily opendyslexic14FontFamily(&opendyslexic14RegularFont, &opendyslexic
                                        &opendyslexic14BoldItalicFont);
 #endif  // OMIT_FONTS
 
+// CJK fallback font for UI text (Korean, Japanese)
+EpdFont cjkUiFont(&cjk_ui_font_10);
+
 EpdFont smallFont(&notosans_8_regular);
-EpdFontFamily smallFontFamily(&smallFont);
+EpdFontFamily smallFontFamily(&smallFont, nullptr, nullptr, nullptr, &cjkUiFont);
 
 EpdFont ui10RegularFont(&ubuntu_10_regular);
 EpdFont ui10BoldFont(&ubuntu_10_bold);
-EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont);
+EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont, nullptr, nullptr, &cjkUiFont);
 
 EpdFont ui12RegularFont(&ubuntu_12_regular);
 EpdFont ui12BoldFont(&ubuntu_12_bold);
-EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont);
+EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont, nullptr, nullptr, &cjkUiFont);
 
 // measurement of power button press duration calibration value
 unsigned long t1 = 0;
