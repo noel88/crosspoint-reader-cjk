@@ -11,8 +11,6 @@
 #include <SPI.h>
 #include <SdFontManager.h>
 #include <builtinFonts/all.h>
-#include <cjk_ui_font_10.h>
-
 #include <cstring>
 
 #include "CrossPointSettings.h"
@@ -33,6 +31,9 @@ MappedInputManager mappedInputManager(gpio);
 GfxRenderer renderer(display);
 ActivityManager activityManager(renderer, mappedInputManager);
 FontDecompressor fontDecompressor;
+
+// CJK fallback font (Korean Hangul + Japanese Kana + CJK punctuation + 3000 common Kanji)
+EpdFont cjkFallbackFont(&notosanscjk_10_regular);
 
 // Fonts
 EpdFont bookerly14RegularFont(&bookerly_14_regular);
@@ -112,19 +113,16 @@ EpdFontFamily opendyslexic14FontFamily(&opendyslexic14RegularFont, &opendyslexic
                                        &opendyslexic14BoldItalicFont);
 #endif  // OMIT_FONTS
 
-// CJK fallback font for UI text (Korean, Japanese)
-EpdFont cjkUiFont(&cjk_ui_font_10);
-
 EpdFont smallFont(&notosans_8_regular);
-EpdFontFamily smallFontFamily(&smallFont, nullptr, nullptr, nullptr, &cjkUiFont);
+EpdFontFamily smallFontFamily(&smallFont, nullptr, nullptr, nullptr, &cjkFallbackFont);
 
 EpdFont ui10RegularFont(&ubuntu_10_regular);
 EpdFont ui10BoldFont(&ubuntu_10_bold);
-EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont, nullptr, nullptr, &cjkUiFont);
+EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont, nullptr, nullptr, &cjkFallbackFont);
 
 EpdFont ui12RegularFont(&ubuntu_12_regular);
 EpdFont ui12BoldFont(&ubuntu_12_bold);
-EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont, nullptr, nullptr, &cjkUiFont);
+EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont, nullptr, nullptr, &cjkFallbackFont);
 
 // measurement of power button press duration calibration value
 unsigned long t1 = 0;
@@ -286,6 +284,17 @@ void setup() {
   LOG_DBG("MAIN", "Starting CrossPoint version " CROSSPOINT_VERSION);
 
   setupDisplayAndFonts();
+
+  // Set SD font as UI fallback for CJK glyph rendering
+  SdFont* uiSdFont = SdFontManager::getInstance().getActiveFont(SdFontType::UI);
+  if (!uiSdFont) {
+    // Fall back to reader SD font if no UI font is set
+    uiSdFont = SdFontManager::getInstance().getActiveFont(SdFontType::READER);
+  }
+  if (uiSdFont && uiSdFont->isLoaded()) {
+    renderer.setSdFontFallback(uiSdFont);
+    LOG_DBG("MAIN", "SD font fallback set for UI rendering");
+  }
 
   activityManager.goToBoot();
 
