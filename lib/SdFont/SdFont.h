@@ -129,7 +129,7 @@ class SdFont {
 
   // LRU cache for glyphs and bitmaps
   static constexpr int CACHE_SIZE = 128;
-  static constexpr int MAX_BITMAP_BYTES = 512;
+  static constexpr int MAX_BITMAP_BYTES = 256;
 
   struct CacheEntry {
     uint32_t codepoint = 0xFFFFFFFF;

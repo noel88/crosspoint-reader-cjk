@@ -34,6 +34,14 @@ void SdFontSelectActivity::loop() {
     int sdFontIndex = (selectedIndex == 0) ? -1 : (selectedIndex - 1);
     mgr.selectFont(sdFontIndex, fontType);
     mgr.saveSettings();
+
+    // Update renderer's SdFont fallback for UI CJK rendering
+    SdFont* uiFont = mgr.getActiveFont(SdFontType::UI);
+    if (!uiFont) {
+      uiFont = mgr.getActiveFont(SdFontType::READER);
+    }
+    renderer.setSdFontFallback((uiFont && uiFont->isLoaded()) ? uiFont : nullptr);
+
     finish();
     return;
   }

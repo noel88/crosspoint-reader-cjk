@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <new>
 
 SdFont::~SdFont() { unload(); }
 
@@ -41,9 +42,25 @@ bool SdFont::load(const char* filepath) {
     return false;
   }
 
-  // Allocate cache
-  _cache = new CacheEntry[CACHE_SIZE]();
-  _hashTable = new int16_t[CACHE_SIZE];
+  // Allocate cache (~36KB for 128 entries with 256-byte bitmaps)
+  _cache = new (std::nothrow) CacheEntry[CACHE_SIZE]();
+  if (!_cache) {
+    LOG_ERR("SDFONT", "Cache alloc failed: %d bytes", (int)(CACHE_SIZE * sizeof(CacheEntry)));
+    _fontFile.close();
+    delete[] _intervals;
+    _intervals = nullptr;
+    return false;
+  }
+  _hashTable = new (std::nothrow) int16_t[CACHE_SIZE];
+  if (!_hashTable) {
+    LOG_ERR("SDFONT", "Hash table alloc failed");
+    _fontFile.close();
+    delete[] _intervals;
+    _intervals = nullptr;
+    delete[] _cache;
+    _cache = nullptr;
+    return false;
+  }
   for (int i = 0; i < CACHE_SIZE; i++) {
     _hashTable[i] = -1;
   }
@@ -121,7 +138,11 @@ bool SdFont::loadHeader() {
 
   // Load interval table
   if (_intervalCount > 0) {
-    _intervals = new EpdfontInterval[_intervalCount];
+    _intervals = new (std::nothrow) EpdfontInterval[_intervalCount];
+    if (!_intervals) {
+      LOG_ERR("SDFONT", "Interval alloc failed: %u entries", _intervalCount);
+      return false;
+    }
 
     if (!_fontFile.seek(header.intervalsOffset)) {
       LOG_ERR("SDFONT", "Failed to seek to intervals");
@@ -224,7 +245,9 @@ bool SdFont::readGlyphFromFile(uint32_t codepoint, CacheEntry* entry) {
 
   // Check bitmap size fits in cache
   if (fileGlyph.dataLength > MAX_BITMAP_BYTES) {
-    LOG_ERR("SDFONT", "Glyph U+%04X bitmap too large: %u bytes", codepoint, fileGlyph.dataLength);
+    LOG_DBG("SDFONT", "Glyph U+%04X bitmap too large: %u > %d bytes", codepoint, fileGlyph.dataLength, MAX_BITMAP_BYTES);
+    entry->notFound = true;
+    entry->valid = true;
     return false;
   }
 
