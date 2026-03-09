@@ -10,6 +10,10 @@ RTC_NOINIT_ATTR char logMessages[MAX_LOG_LINES][MAX_ENTRY_LEN];
 RTC_NOINIT_ATTR size_t logHead = 0;
 
 void addToLogRingBuffer(const char* message) {
+  // Sanitize logHead in case RTC memory contains garbage after fresh flash
+  if (logHead >= MAX_LOG_LINES) {
+    clearLastLogs();
+  }
   // Add the message to the ring buffer, overwriting old messages if necessary
   strncpy(logMessages[logHead], message, MAX_ENTRY_LEN - 1);
   logMessages[logHead][MAX_ENTRY_LEN - 1] = '\0';

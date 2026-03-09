@@ -719,6 +719,40 @@ if compress:
         (0x20A0, 0x20CF),   # Currency Symbols
         (0x2190, 0x21FF),   # Arrows
         (0x2200, 0x22FF),   # Math Operators
+        (0x3000, 0x303F),   # CJK Punctuation
+        (0x3040, 0x309F),   # Hiragana
+        (0x30A0, 0x30FF),   # Katakana
+        (0x4E00, 0x51FF),   # CJK Ideographs Block 1
+        (0x5200, 0x55FF),   # CJK Ideographs Block 2
+        (0x5600, 0x59FF),   # CJK Ideographs Block 3
+        (0x5A00, 0x5DFF),   # CJK Ideographs Block 4
+        (0x5E00, 0x61FF),   # CJK Ideographs Block 5
+        (0x6200, 0x65FF),   # CJK Ideographs Block 6
+        (0x6600, 0x69FF),   # CJK Ideographs Block 7
+        (0x6A00, 0x6DFF),   # CJK Ideographs Block 8
+        (0x6E00, 0x71FF),   # CJK Ideographs Block 9
+        (0x7200, 0x75FF),   # CJK Ideographs Block 10
+        (0x7600, 0x79FF),   # CJK Ideographs Block 11
+        (0x7A00, 0x7DFF),   # CJK Ideographs Block 12
+        (0x7E00, 0x81FF),   # CJK Ideographs Block 13
+        (0x8200, 0x85FF),   # CJK Ideographs Block 14
+        (0x8600, 0x89FF),   # CJK Ideographs Block 15
+        (0x8A00, 0x8DFF),   # CJK Ideographs Block 16
+        (0x8E00, 0x91FF),   # CJK Ideographs Block 17
+        (0x9200, 0x95FF),   # CJK Ideographs Block 18
+        (0x9600, 0x99FF),   # CJK Ideographs Block 19
+        (0x9A00, 0x9FFF),   # CJK Ideographs Block 20
+        (0xAC00, 0xAFFF),   # Hangul Syllables Block 1
+        (0xB000, 0xB3FF),   # Hangul Syllables Block 2
+        (0xB400, 0xB7FF),   # Hangul Syllables Block 3
+        (0xB800, 0xBBFF),   # Hangul Syllables Block 4
+        (0xBC00, 0xBFFF),   # Hangul Syllables Block 5
+        (0xC000, 0xC3FF),   # Hangul Syllables Block 6
+        (0xC400, 0xC7FF),   # Hangul Syllables Block 7
+        (0xC800, 0xCBFF),   # Hangul Syllables Block 8
+        (0xCC00, 0xCFFF),   # Hangul Syllables Block 9
+        (0xD000, 0xD3FF),   # Hangul Syllables Block 10
+        (0xD400, 0xD7AF),   # Hangul Syllables Block 11
         (0xFB00, 0xFB06),   # Alphabetic Presentation Forms (ligatures)
         (0xFFFD, 0xFFFD),   # Replacement Character
     ]
@@ -747,6 +781,35 @@ if compress:
 
     if group_count > 0:
         groups.append((group_start, group_count))
+
+    # Split large groups so each group's uncompressed bitmap fits in limited RAM.
+    # Target max ~6KB uncompressed per group (safe for ESP32-C3 with ~9KB MaxAlloc).
+    MAX_GROUP_UNCOMPRESSED = 6144
+    split_groups = []
+    for first_idx, count in groups:
+        # Estimate uncompressed size for this group
+        total_size = sum(all_glyphs[i][1].__len__() if isinstance(all_glyphs[i][1], (bytes, bytearray))
+                         else len(all_glyphs[i][1]) for i in range(first_idx, first_idx + count))
+        if total_size <= MAX_GROUP_UNCOMPRESSED:
+            split_groups.append((first_idx, count))
+        else:
+            # Split into sub-groups that fit within the limit
+            sub_start = first_idx
+            sub_size = 0
+            sub_count = 0
+            for i in range(first_idx, first_idx + count):
+                glyph_size = len(all_glyphs[i][1]) if isinstance(all_glyphs[i][1], (bytes, bytearray)) else len(all_glyphs[i][1])
+                if sub_count > 0 and sub_size + glyph_size > MAX_GROUP_UNCOMPRESSED:
+                    split_groups.append((sub_start, sub_count))
+                    sub_start = i
+                    sub_size = glyph_size
+                    sub_count = 1
+                else:
+                    sub_size += glyph_size
+                    sub_count += 1
+            if sub_count > 0:
+                split_groups.append((sub_start, sub_count))
+    groups = split_groups
 
     # Compress each group
     compressed_groups = []  # list of (compressed_bytes, uncompressed_size, glyph_count, first_glyph_index)

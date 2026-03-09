@@ -67,7 +67,11 @@ class SdFont {
    * @param filepath Full path on SD card (e.g. "/fonts/NotoSansKR_28.epdfont")
    * @return true on success
    */
-  bool load(const char* filepath);
+  /**
+   * @param filepath Full path on SD card (e.g. "/fonts/NotoSansKR_28.epdfont")
+   * @param cacheSize Number of LRU cache entries (default 128, use fewer for UI fonts)
+   */
+  bool load(const char* filepath, int cacheSize = DEFAULT_CACHE_SIZE);
 
   /**
    * Unload font and free resources
@@ -109,6 +113,9 @@ class SdFont {
    */
   const EpdFontData* getData() const { return &_fontData; }
 
+ public:
+  static constexpr int DEFAULT_CACHE_SIZE = 64;
+
  private:
   // Font file handle
   HalFile _fontFile;
@@ -128,7 +135,6 @@ class SdFont {
   uint32_t _bitmapOffset = 0;
 
   // LRU cache for glyphs and bitmaps
-  static constexpr int CACHE_SIZE = 128;
   static constexpr int MAX_BITMAP_BYTES = 256;
 
   struct CacheEntry {
@@ -140,11 +146,14 @@ class SdFont {
     bool notFound = false;  // Glyph doesn't exist in font
   };
   CacheEntry* _cache = nullptr;
+  int _cacheSize = 0;
   uint32_t _accessCounter = 0;
+  uint32_t _cacheMisses = 0;
+  uint32_t _cacheHits = 0;
 
   // Hash table for O(1) cache lookup
   int16_t* _hashTable = nullptr;
-  static int hashCodepoint(uint32_t cp) { return cp % CACHE_SIZE; }
+  int hashCodepoint(uint32_t cp) const { return cp % _cacheSize; }
 
   // EpdFontData structure for compatibility
   EpdFontData _fontData = {};
@@ -155,4 +164,5 @@ class SdFont {
   bool readGlyphFromFile(uint32_t codepoint, CacheEntry* entry);
   int findInCache(uint32_t codepoint);
   int getLruSlot();
+  void dumpSampleGlyph(uint32_t codepoint);
 };

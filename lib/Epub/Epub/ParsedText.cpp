@@ -43,6 +43,15 @@ uint32_t lastCodepoint(const std::string& word) {
 
 bool containsSoftHyphen(const std::string& word) { return word.find(SOFT_HYPHEN_UTF8) != std::string::npos; }
 
+// Returns true if inter-word spacing should be added between two adjacent words.
+// CJK words have no inter-word spaces; their advance width handles character gaps.
+bool shouldAddWordGap(const std::string& prevWord, const std::string& nextWord) {
+  if (isCjkCodepoint(lastCodepoint(prevWord)) || isCjkCodepoint(firstCodepoint(nextWord))) {
+    return false;
+  }
+  return true;
+}
+
 // Removes every soft hyphen in-place so rendered glyphs match measured widths.
 void stripSoftHyphensInPlace(std::string& word) {
   size_t pos = 0;
@@ -186,7 +195,7 @@ std::vector<size_t> ParsedText::computeLineBreaks(const GfxRenderer& renderer, c
     for (size_t j = i; j < totalWordCount; ++j) {
       // Add space before word j, unless it's the first word on the line or a continuation
       int gap = 0;
-      if (j > static_cast<size_t>(i) && !continuesVec[j]) {
+      if (j > static_cast<size_t>(i) && !continuesVec[j] && shouldAddWordGap(words[j - 1], words[j])) {
         gap = spaceWidth;
         gap += renderer.getSpaceKernAdjust(fontId, lastCodepoint(words[j - 1]), firstCodepoint(words[j]),
                                            wordStyles[j - 1]);
@@ -303,7 +312,8 @@ std::vector<size_t> ParsedText::computeHyphenatedLineBreaks(const GfxRenderer& r
     while (currentIndex < wordWidths.size()) {
       const bool isFirstWord = currentIndex == lineStart;
       int spacing = 0;
-      if (!isFirstWord && !continuesVec[currentIndex]) {
+      if (!isFirstWord && !continuesVec[currentIndex] &&
+          shouldAddWordGap(words[currentIndex - 1], words[currentIndex])) {
         spacing = spaceWidth;
         spacing += renderer.getSpaceKernAdjust(fontId, lastCodepoint(words[currentIndex - 1]),
                                                firstCodepoint(words[currentIndex]), wordStyles[currentIndex - 1]);
@@ -469,7 +479,8 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
   for (size_t wordIdx = 0; wordIdx < lineWordCount; wordIdx++) {
     lineWordWidthSum += wordWidths[lastBreakAt + wordIdx];
     // Count gaps: each word after the first creates a gap, unless it's a continuation
-    if (wordIdx > 0 && !continuesVec[lastBreakAt + wordIdx]) {
+    if (wordIdx > 0 && !continuesVec[lastBreakAt + wordIdx] &&
+        shouldAddWordGap(words[lastBreakAt + wordIdx - 1], words[lastBreakAt + wordIdx])) {
       actualGapCount++;
       int naturalGap = spaceWidth;
       naturalGap += renderer.getSpaceKernAdjust(fontId, lastCodepoint(words[lastBreakAt + wordIdx - 1]),
@@ -520,14 +531,19 @@ void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const
                               firstCodepoint(words[lastBreakAt + wordIdx + 1]), wordStyles[lastBreakAt + wordIdx]);
       xpos += advance;
     } else {
-      int gap = spaceWidth;
-      if (wordIdx + 1 < lineWordCount) {
-        gap += renderer.getSpaceKernAdjust(fontId, lastCodepoint(words[lastBreakAt + wordIdx]),
-                                           firstCodepoint(words[lastBreakAt + wordIdx + 1]),
-                                           wordStyles[lastBreakAt + wordIdx]);
-      }
-      if (blockStyle.alignment == CssTextAlign::Justify && !isLastLine) {
-        gap += justifyExtra;
+      int gap = 0;
+      const bool nextIsCjkGap = wordIdx + 1 < lineWordCount &&
+                                !shouldAddWordGap(words[lastBreakAt + wordIdx], words[lastBreakAt + wordIdx + 1]);
+      if (!nextIsCjkGap) {
+        gap = spaceWidth;
+        if (wordIdx + 1 < lineWordCount) {
+          gap += renderer.getSpaceKernAdjust(fontId, lastCodepoint(words[lastBreakAt + wordIdx]),
+                                             firstCodepoint(words[lastBreakAt + wordIdx + 1]),
+                                             wordStyles[lastBreakAt + wordIdx]);
+        }
+        if (blockStyle.alignment == CssTextAlign::Justify && !isLastLine) {
+          gap += justifyExtra;
+        }
       }
       xpos += wordWidths[lastBreakAt + wordIdx] + gap;
     }

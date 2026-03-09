@@ -17,7 +17,7 @@ class FontDecompressor {
   void clearCache();
 
  private:
-  static constexpr uint8_t CACHE_SLOTS = 4;
+  static constexpr uint8_t CACHE_SLOTS = 2;
 
   struct CacheEntry {
     const EpdFontData* font = nullptr;

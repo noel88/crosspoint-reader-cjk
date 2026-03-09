@@ -10,7 +10,7 @@
 
 SdFont::~SdFont() { unload(); }
 
-bool SdFont::load(const char* filepath) {
+bool SdFont::load(const char* filepath, int cacheSize) {
   unload();
 
   // Extract font name from filepath
@@ -42,16 +42,17 @@ bool SdFont::load(const char* filepath) {
     return false;
   }
 
-  // Allocate cache (~36KB for 128 entries with 256-byte bitmaps)
-  _cache = new (std::nothrow) CacheEntry[CACHE_SIZE]();
+  // Allocate cache (e.g. ~36KB for 128 entries, ~9KB for 32 entries)
+  _cacheSize = cacheSize;
+  _cache = new (std::nothrow) CacheEntry[_cacheSize]();
   if (!_cache) {
-    LOG_ERR("SDFONT", "Cache alloc failed: %d bytes", (int)(CACHE_SIZE * sizeof(CacheEntry)));
+    LOG_ERR("SDFONT", "Cache alloc failed: %d bytes", (int)(_cacheSize * sizeof(CacheEntry)));
     _fontFile.close();
     delete[] _intervals;
     _intervals = nullptr;
     return false;
   }
-  _hashTable = new (std::nothrow) int16_t[CACHE_SIZE];
+  _hashTable = new (std::nothrow) int16_t[_cacheSize];
   if (!_hashTable) {
     LOG_ERR("SDFONT", "Hash table alloc failed");
     _fontFile.close();
@@ -61,7 +62,7 @@ bool SdFont::load(const char* filepath) {
     _cache = nullptr;
     return false;
   }
-  for (int i = 0; i < CACHE_SIZE; i++) {
+  for (int i = 0; i < _cacheSize; i++) {
     _hashTable[i] = -1;
   }
 
@@ -87,7 +88,13 @@ bool SdFont::load(const char* filepath) {
   _fontData.ligaturePairCount = 0;
 
   _isLoaded = true;
-  LOG_DBG("SDFONT", "Loaded: %s (advanceY=%d, ascender=%d, descender=%d)", _fontName, _advanceY, _ascender, _descender);
+  _cacheMisses = 0;
+  _cacheHits = 0;
+  LOG_DBG("SDFONT", "Loaded: %s (advY=%d, asc=%d, desc=%d, 2bit=%d, cache=%d)", _fontName, _advanceY, _ascender, _descender, _is2Bit, _cacheSize);
+
+  // Diagnostic: dump a sample glyph bitmap to verify font data integrity
+  dumpSampleGlyph(0x4E00);  // 一 (simplest CJK character - horizontal line)
+
   return true;
 }
 
@@ -107,6 +114,7 @@ void SdFont::unload() {
 
   _isLoaded = false;
   _intervalCount = 0;
+  _cacheSize = 0;
   _accessCounter = 0;
 }
 
@@ -192,7 +200,7 @@ int SdFont::findInCache(uint32_t codepoint) {
   }
 
   // Linear search fallback (for hash collisions)
-  for (int i = 0; i < CACHE_SIZE; i++) {
+  for (int i = 0; i < _cacheSize; i++) {
     if (_cache[i].codepoint == codepoint && _cache[i].valid) {
       return i;
     }
@@ -205,7 +213,7 @@ int SdFont::getLruSlot() {
   uint32_t oldest = UINT32_MAX;
   int oldestSlot = 0;
 
-  for (int i = 0; i < CACHE_SIZE; i++) {
+  for (int i = 0; i < _cacheSize; i++) {
     if (!_cache[i].valid) {
       return i;  // Empty slot
     }
@@ -235,11 +243,13 @@ bool SdFont::readGlyphFromFile(uint32_t codepoint, CacheEntry* entry) {
   // Read glyph metadata
   uint32_t glyphOffset = _glyphsOffset + glyphIndex * sizeof(EpdfontGlyph);
   if (!_fontFile.seek(glyphOffset)) {
+    LOG_ERR("SDFONT", "Seek failed for U+%04X at offset %u", codepoint, glyphOffset);
     return false;
   }
 
   EpdfontGlyph fileGlyph;
   if (_fontFile.read(&fileGlyph, sizeof(fileGlyph)) != sizeof(fileGlyph)) {
+    LOG_ERR("SDFONT", "Read glyph metadata failed for U+%04X", codepoint);
     return false;
   }
 
@@ -251,6 +261,15 @@ bool SdFont::readGlyphFromFile(uint32_t codepoint, CacheEntry* entry) {
     return false;
   }
 
+  // Validate bitmap size matches glyph dimensions
+  uint32_t pixels = (uint32_t)fileGlyph.width * fileGlyph.height;
+  uint32_t expectedLen = _is2Bit ? (pixels + 3) / 4 : (pixels + 7) / 8;
+  if (fileGlyph.dataLength != expectedLen && fileGlyph.width > 0 && fileGlyph.height > 0) {
+    LOG_ERR("SDFONT", "U+%04X dataLength mismatch: %u vs expected %u (%ux%u %s)",
+            codepoint, fileGlyph.dataLength, expectedLen,
+            fileGlyph.width, fileGlyph.height, _is2Bit ? "2bit" : "1bit");
+  }
+
   // Convert to EpdGlyph format (note: advanceX needs conversion to 12.4 fixed-point)
   entry->glyph.width = fileGlyph.width;
   entry->glyph.height = fileGlyph.height;
@@ -260,14 +279,19 @@ bool SdFont::readGlyphFromFile(uint32_t codepoint, CacheEntry* entry) {
   entry->glyph.dataLength = fileGlyph.dataLength;
   entry->glyph.dataOffset = 0;  // We store bitmap directly, not offset
 
+  // Clear bitmap to prevent stale data from previous cache occupant
+  memset(entry->bitmap, 0, MAX_BITMAP_BYTES);
+
   // Read bitmap data
   if (fileGlyph.dataLength > 0) {
     uint32_t bitmapOffset = _bitmapOffset + fileGlyph.dataOffset;
     if (!_fontFile.seek(bitmapOffset)) {
+      LOG_ERR("SDFONT", "Seek bitmap failed for U+%04X at offset %u", codepoint, bitmapOffset);
       return false;
     }
 
     if (_fontFile.read(entry->bitmap, fileGlyph.dataLength) != (int)fileGlyph.dataLength) {
+      LOG_ERR("SDFONT", "Read bitmap failed for U+%04X (%u bytes)", codepoint, fileGlyph.dataLength);
       return false;
     }
   }
@@ -287,6 +311,7 @@ const EpdGlyph* SdFont::getGlyph(uint32_t cp) {
   int slot = findInCache(cp);
   if (slot >= 0) {
     _cache[slot].lastUsed = ++_accessCounter;
+    _cacheHits++;
     if (_cache[slot].notFound) {
       // Try replacement character
       if (cp != REPLACEMENT_GLYPH) {
@@ -297,9 +322,18 @@ const EpdGlyph* SdFont::getGlyph(uint32_t cp) {
     return &_cache[slot].glyph;
   }
 
-  // Load from file
+  // Load from file - cache miss
+  _cacheMisses++;
+  if ((_cacheMisses % 50) == 1) {
+    LOG_DBG("SDFONT", "Cache miss #%u (hits=%u, ratio=%.0f%%) U+%04X",
+            _cacheMisses, _cacheHits,
+            _cacheHits + _cacheMisses > 0 ? 100.0f * _cacheHits / (_cacheHits + _cacheMisses) : 0.0f, cp);
+  }
   slot = getLruSlot();
   CacheEntry* entry = &_cache[slot];
+
+  // Invalidate before read to prevent stale data if read fails partway
+  entry->valid = false;
 
   if (!readGlyphFromFile(cp, entry)) {
     if (entry->notFound) {
@@ -321,13 +355,68 @@ const EpdGlyph* SdFont::getGlyph(uint32_t cp) {
   return &entry->glyph;
 }
 
+void SdFont::dumpSampleGlyph(uint32_t codepoint) {
+  int glyphIndex = findGlyphIndex(codepoint);
+  if (glyphIndex < 0) {
+    LOG_DBG("SDFONT", "DIAG: U+%04X not in font", codepoint);
+    return;
+  }
+
+  // Read raw glyph data from file
+  uint32_t glyphOffset = _glyphsOffset + glyphIndex * sizeof(EpdfontGlyph);
+  if (!_fontFile.seek(glyphOffset)) return;
+
+  EpdfontGlyph fg;
+  if (_fontFile.read(&fg, sizeof(fg)) != sizeof(fg)) return;
+
+  LOG_DBG("SDFONT", "DIAG U+%04X: w=%u h=%u advX=%u left=%d top=%d dLen=%u dOff=%u",
+          codepoint, fg.width, fg.height, fg.advanceX, fg.left, fg.top, fg.dataLength, fg.dataOffset);
+
+  if (fg.dataLength == 0 || fg.dataLength > MAX_BITMAP_BYTES) return;
+
+  uint8_t bmp[MAX_BITMAP_BYTES];
+  uint32_t bitmapFileOffset = _bitmapOffset + fg.dataOffset;
+  if (!_fontFile.seek(bitmapFileOffset)) return;
+  if (_fontFile.read(bmp, fg.dataLength) != (int)fg.dataLength) return;
+
+  // Log first 16 bytes as hex
+  char hex[80];
+  int pos = 0;
+  for (uint32_t i = 0; i < fg.dataLength && i < 16 && pos < 75; i++) {
+    pos += snprintf(hex + pos, sizeof(hex) - pos, "%02X ", bmp[i]);
+  }
+  LOG_DBG("SDFONT", "DIAG hex: %s", hex);
+
+  // Render as ASCII art (max 32 rows to avoid excessive output)
+  uint8_t maxRows = fg.height < 32 ? fg.height : 32;
+  for (uint8_t y = 0; y < maxRows; y++) {
+    char line[65];  // max 64 cols + null
+    uint8_t maxCols = fg.width < 64 ? fg.width : 64;
+    for (uint8_t x = 0; x < maxCols; x++) {
+      int pixelPos = y * fg.width + x;
+      if (_is2Bit) {
+        uint8_t byte = bmp[pixelPos >> 2];
+        uint8_t bitIdx = (3 - (pixelPos & 3)) * 2;
+        uint8_t val = (byte >> bitIdx) & 0x3;
+        line[x] = (val == 0) ? '.' : (val == 1) ? '+' : (val == 2) ? '#' : '@';
+      } else {
+        uint8_t byte = bmp[pixelPos >> 3];
+        uint8_t bitIdx = 7 - (pixelPos & 7);
+        line[x] = ((byte >> bitIdx) & 1) ? '#' : '.';
+      }
+    }
+    line[maxCols] = '\0';
+    LOG_DBG("SDFONT", "DIAG|%s|", line);
+  }
+}
+
 const uint8_t* SdFont::getGlyphBitmap(const EpdGlyph* glyph) {
   if (!glyph || !_isLoaded) {
     return nullptr;
   }
 
   // Find the cache entry that contains this glyph
-  for (int i = 0; i < CACHE_SIZE; i++) {
+  for (int i = 0; i < _cacheSize; i++) {
     if (_cache[i].valid && &_cache[i].glyph == glyph) {
       return _cache[i].bitmap;
     }

@@ -259,6 +259,34 @@ void SettingsActivity::render(RenderLock&&) {
           valueText = I18N.get(setting.enumValues[value]);
         } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
           valueText = std::to_string(SETTINGS.*(setting.valuePtr));
+        } else if (setting.type == SettingType::ACTION) {
+          auto& mgr = SdFontManager::getInstance();
+          if (setting.action == SettingAction::FontFamily) {
+            if (mgr.isSdFontActive(SdFontType::READER)) {
+              int idx = mgr.getSelectedIndex(SdFontType::READER);
+              const SdFontInfo* info = mgr.getFontInfo(idx);
+              if (info) {
+                valueText = info->name;
+                valueText += " [SD]";
+              }
+            } else {
+              static const StrId fontNames[] = {StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS, StrId::STR_OPEN_DYSLEXIC};
+              uint8_t idx = SETTINGS.fontFamily;
+              if (idx < 3) {
+                valueText = I18N.get(fontNames[idx]);
+              }
+            }
+          } else if (setting.action == SettingAction::SdUiFont) {
+            if (mgr.isSdFontActive(SdFontType::UI)) {
+              int idx = mgr.getSelectedIndex(SdFontType::UI);
+              const SdFontInfo* info = mgr.getFontInfo(idx);
+              if (info) {
+                valueText = info->name;
+              }
+            } else {
+              valueText = tr(STR_BUILTIN_DISABLED);
+            }
+          }
         }
         return valueText;
       },

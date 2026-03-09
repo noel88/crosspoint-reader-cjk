@@ -5,6 +5,16 @@
 #include <Logging.h>
 #include <Utf8.h>
 
+// CJK advance tightening: reduce advance width for tighter character spacing.
+// 61/64 = ~95.3% of original advance.
+// Applied consistently in measurement and rendering to avoid layout mismatches.
+static inline uint16_t tightenCjkAdvance(uint16_t advanceX, uint32_t cp) {
+  if (isCjkCodepoint(cp)) {
+    return static_cast<uint16_t>((static_cast<uint32_t>(advanceX) * 61) >> 6);
+  }
+  return advanceX;
+}
+
 const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const {
   if (fontData->groups != nullptr) {
     if (!fontDecompressor) {
@@ -13,6 +23,9 @@ const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const Ep
     }
     uint16_t glyphIndex = static_cast<uint16_t>(glyph - fontData->glyph);
     return fontDecompressor->getBitmap(fontData, glyph, glyphIndex);
+  }
+  if (!fontData->bitmap) {
+    return nullptr;
   }
   return &fontData->bitmap[glyph->dataOffset];
 }
@@ -86,9 +99,14 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
     if (needFallback) {
       const EpdGlyph* sdGlyph = sdFont->getGlyph(cp);
       if (sdGlyph) {
-        glyph = sdGlyph;
-        fontData = sdFont->getData();
-        sdBitmap = sdFont->getGlyphBitmap(sdGlyph);
+        const uint8_t* bmp = sdFont->getGlyphBitmap(sdGlyph);
+        if (bmp) {
+          glyph = sdGlyph;
+          fontData = sdFont->getData();
+          sdBitmap = bmp;
+        } else {
+          LOG_ERR("GFX", "SdFont bitmap null for U+%04X - skipping fallback", cp);
+        }
       }
     }
   }
@@ -245,7 +263,7 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
     }
 
     if (glyph) {
-      totalWidth += fp4::toPixel(glyph->advanceX);
+      totalWidth += fp4::toPixel(tightenCjkAdvance(glyph->advanceX, cp));
     }
   }
   return totalWidth;
@@ -321,12 +339,13 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       }
     }
 
-    lastBaseAdvanceFP = glyph ? glyph->advanceX : 0;
+    const uint16_t effectiveAdvance = glyph ? tightenCjkAdvance(glyph->advanceX, cp) : 0;
+    lastBaseAdvanceFP = effectiveAdvance;
     lastBaseTop = glyph ? glyph->top : 0;
 
     renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, lastBaseX, yPos, black, style);
     if (glyph) {
-      xPosFP += glyph->advanceX;  // 12.4 fixed-point advance
+      xPosFP += effectiveAdvance;  // 12.4 fixed-point advance (CJK-tightened)
     }
     prevCp = cp;
   }
@@ -1074,7 +1093,7 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
       }
     }
 
-    if (glyph) widthFP += glyph->advanceX;  // 12.4 fixed-point advance
+    if (glyph) widthFP += tightenCjkAdvance(glyph->advanceX, cp);  // 12.4 fixed-point advance
     prevCp = cp;
   }
   return fp4::toPixel(widthFP);  // snap 12.4 fixed-point to nearest pixel
@@ -1174,12 +1193,13 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
       }
     }
 
-    lastBaseAdvanceFP = glyph ? glyph->advanceX : 0;  // 12.4 fixed-point
+    const uint16_t effectiveAdvance = glyph ? tightenCjkAdvance(glyph->advanceX, cp) : 0;
+    lastBaseAdvanceFP = effectiveAdvance;  // 12.4 fixed-point
     lastBaseTop = glyph ? glyph->top : 0;
 
     renderCharImpl<TextRotation::Rotated90CW>(*this, renderMode, font, cp, x, lastBaseY, black, style);
     if (glyph) {
-      yPosFP -= glyph->advanceX;  // 12.4 fixed-point advance (subtract for rotated)
+      yPosFP -= effectiveAdvance;  // 12.4 fixed-point advance (subtract for rotated)
     }
     prevCp = cp;
   }

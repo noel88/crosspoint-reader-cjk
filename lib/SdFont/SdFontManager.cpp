@@ -166,7 +166,9 @@ bool SdFontManager::loadSelectedFont(SdFontType type) {
   char filepath[80];
   snprintf(filepath, sizeof(filepath), "%s/%s", FONTS_DIR, _fonts[selectedIndex].filename);
 
-  return activeFont.load(filepath);
+  // UI fonts use smaller cache (32 entries ~9KB) to save memory
+  int cacheSize = (type == SdFontType::UI) ? 32 : SdFont::DEFAULT_CACHE_SIZE;
+  return activeFont.load(filepath, cacheSize);
 }
 
 SdFont* SdFontManager::getActiveFont(SdFontType type) {

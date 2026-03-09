@@ -4,6 +4,7 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <Utf8.h>
 #include <expat.h>
 
 #include "../../Epub.h"
@@ -38,6 +39,62 @@ const char* SKIP_TAGS[] = {"head"};
 constexpr int NUM_SKIP_TAGS = sizeof(SKIP_TAGS) / sizeof(SKIP_TAGS[0]);
 
 bool isWhitespace(const char c) { return c == ' ' || c == '\r' || c == '\n' || c == '\t'; }
+
+// isCjkCodepoint() is defined in Utf8.h (shared with GfxRenderer for advance tightening)
+
+// CJK closing punctuation that must not start a line (kinsoku shori).
+// These attach to the preceding character via continuation flag.
+bool isCjkClosingPunctuation(const uint32_t cp) {
+  switch (cp) {
+    case 0x3001:  // 、
+    case 0x3002:  // 。
+    case 0x3005:  // 々 (ideographic iteration mark)
+    case 0x3009:  // 〉
+    case 0x300B:  // 》
+    case 0x300D:  // 」
+    case 0x300F:  // 』
+    case 0x3011:  // 】
+    case 0x3015:  // 〕
+    case 0x3017:  // 〗
+    case 0x3019:  // 〙
+    case 0x301B:  // 〛
+    case 0x30FB:  // ・
+    case 0xFF01:  // ！
+    case 0xFF09:  // ）
+    case 0xFF0C:  // ，
+    case 0xFF0E:  // ．
+    case 0xFF1A:  // ：
+    case 0xFF1B:  // ；
+    case 0xFF1F:  // ？
+    case 0xFF3D:  // ］
+    case 0xFF5D:  // ｝
+      return true;
+    default:
+      return false;
+  }
+}
+
+// CJK opening punctuation that must not end a line (kinsoku shori).
+// The following character attaches to these via continuation flag.
+bool isCjkOpeningPunctuation(const uint32_t cp) {
+  switch (cp) {
+    case 0x3008:  // 〈
+    case 0x300A:  // 《
+    case 0x300C:  // 「
+    case 0x300E:  // 『
+    case 0x3010:  // 【
+    case 0x3014:  // 〔
+    case 0x3016:  // 〖
+    case 0x3018:  // 〘
+    case 0x301A:  // 〚
+    case 0xFF08:  // （
+    case 0xFF3B:  // ［
+    case 0xFF5B:  // ｛
+      return true;
+    default:
+      return false;
+  }
+}
 
 // given the start and end of a tag, check to see if it matches a known tag
 bool matches(const char* tag_name, const char* possible_tags[], const int possible_tag_count) {
@@ -758,9 +815,46 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
       }
     }
 
-    // If we're about to run out of space, then cut the word off and start a new one
-    if (self->partWordBufferIndex >= MAX_WORD_SIZE) {
-      self->flushPartWordBuffer();
+    // CJK word breaking: each CJK character becomes its own word token.
+    // CJK languages do not use spaces between words, so without this entire sentences
+    // accumulate as one giant "word" that overflows the buffer and splits UTF-8 mid-character.
+    {
+      const auto uc = static_cast<unsigned char>(s[i]);
+      const int cpLen = utf8CodepointLen(uc);
+      if (cpLen == 3 && i + 2 < len) {
+        const uint32_t cp = (static_cast<uint32_t>(uc & 0x0F) << 12) |
+                            (static_cast<uint32_t>(static_cast<unsigned char>(s[i + 1]) & 0x3F) << 6) |
+                            static_cast<uint32_t>(static_cast<unsigned char>(s[i + 2]) & 0x3F);
+        if (isCjkCodepoint(cp)) {
+          // Flush any Latin/other text accumulated before this CJK character
+          if (self->partWordBufferIndex > 0) {
+            self->flushPartWordBuffer();
+          }
+          // Closing punctuation (。、！etc.) must not start a line — attach to previous word
+          if (isCjkClosingPunctuation(cp)) {
+            self->nextWordContinues = true;
+          }
+          // Copy the full 3-byte character into buffer and flush as its own word
+          self->partWordBuffer[0] = s[i];
+          self->partWordBuffer[1] = s[i + 1];
+          self->partWordBuffer[2] = s[i + 2];
+          self->partWordBufferIndex = 3;
+          self->flushPartWordBuffer();
+          // Opening punctuation (「（etc.) must not end a line — next char attaches
+          if (isCjkOpeningPunctuation(cp)) {
+            self->nextWordContinues = true;
+          }
+          i += 2;  // Skip remaining 2 bytes (loop will i++)
+          continue;
+        }
+      }
+
+      // UTF-8 boundary-safe buffer overflow: check if the full character fits before appending.
+      // This prevents splitting a multi-byte UTF-8 sequence across two buffer flushes which
+      // would produce invalid UTF-8 and garbled text.
+      if (self->partWordBufferIndex + cpLen > MAX_WORD_SIZE) {
+        self->flushPartWordBuffer();
+      }
     }
 
     self->partWordBuffer[self->partWordBufferIndex++] = s[i];

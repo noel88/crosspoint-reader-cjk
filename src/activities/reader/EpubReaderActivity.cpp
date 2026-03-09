@@ -7,6 +7,7 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <SdFontManager.h>
 
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -43,6 +44,16 @@ int clampPercent(int percent) {
 
 void EpubReaderActivity::onEnter() {
   Activity::onEnter();
+
+  // Free any cached decompressed font groups (e.g. CJK UI fallback) to reclaim RAM
+  renderer.clearFontCache();
+
+  // Set READER SdFont as fallback for CJK glyph rendering in book content
+  SdFont* readerFont = SdFontManager::getInstance().getActiveFont(SdFontType::READER);
+  if (readerFont && readerFont->isLoaded()) {
+    renderer.setSdFontFallback(readerFont);
+    LOG_DBG("ERS", "Reader SdFont fallback set: %s", readerFont->getFontName());
+  }
 
   if (!epub) {
     return;
@@ -90,6 +101,13 @@ void EpubReaderActivity::onEnter() {
 
 void EpubReaderActivity::onExit() {
   Activity::onExit();
+
+  // Restore UI SdFont fallback for menu/settings rendering
+  SdFont* uiFont = SdFontManager::getInstance().getActiveFont(SdFontType::UI);
+  if (!uiFont) {
+    uiFont = SdFontManager::getInstance().getActiveFont(SdFontType::READER);
+  }
+  renderer.setSdFontFallback((uiFont && uiFont->isLoaded()) ? uiFont : nullptr);
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);
