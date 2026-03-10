@@ -277,8 +277,8 @@ void SettingsActivity::render(RenderLock&&) {
               }
             }
           } else if (setting.action == SettingAction::SdUiFont) {
-            if (mgr.isSdFontActive(SdFontType::UI)) {
-              int idx = mgr.getSelectedIndex(SdFontType::UI);
+            int idx = mgr.getSelectedIndex(SdFontType::UI);
+            if (idx >= 0) {
               const SdFontInfo* info = mgr.getFontInfo(idx);
               if (info) {
                 valueText = info->name;

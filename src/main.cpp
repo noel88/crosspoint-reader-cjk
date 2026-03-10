@@ -33,8 +33,7 @@ GfxRenderer renderer(display);
 ActivityManager activityManager(renderer, mappedInputManager);
 FontDecompressor fontDecompressor;
 
-// CJK fallback font (Korean Hangul + Japanese Kana + CJK punctuation + 3000 common Kanji)
-EpdFont cjkFallbackFont(&notosanscjk_10_regular);
+// CJK fallback - use SD card fonts via setSdFontFallback()
 
 // Fonts
 EpdFont bookerly14RegularFont(&bookerly_14_regular);
@@ -115,15 +114,15 @@ EpdFontFamily opendyslexic14FontFamily(&opendyslexic14RegularFont, &opendyslexic
 #endif  // OMIT_FONTS
 
 EpdFont smallFont(&notosans_8_regular);
-EpdFontFamily smallFontFamily(&smallFont, nullptr, nullptr, nullptr, &cjkFallbackFont);
+EpdFontFamily smallFontFamily(&smallFont, nullptr, nullptr, nullptr, nullptr);
 
 EpdFont ui10RegularFont(&ubuntu_10_regular);
 EpdFont ui10BoldFont(&ubuntu_10_bold);
-EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont, nullptr, nullptr, &cjkFallbackFont);
+EpdFontFamily ui10FontFamily(&ui10RegularFont, &ui10BoldFont, nullptr, nullptr, nullptr);
 
 EpdFont ui12RegularFont(&ubuntu_12_regular);
 EpdFont ui12BoldFont(&ubuntu_12_bold);
-EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont, nullptr, nullptr, &cjkFallbackFont);
+EpdFontFamily ui12FontFamily(&ui12RegularFont, &ui12BoldFont, nullptr, nullptr, nullptr);
 
 // measurement of power button press duration calibration value
 unsigned long t1 = 0;
