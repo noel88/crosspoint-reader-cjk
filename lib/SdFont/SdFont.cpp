@@ -114,6 +114,8 @@ void SdFont::unload() {
 
   _isLoaded = false;
   _intervalCount = 0;
+  _intervalsOffset = 0;
+  _useLazyIntervals = false;
   _cacheSize = 0;
   _accessCounter = 0;
 }
@@ -141,11 +143,20 @@ bool SdFont::loadHeader() {
   _descender = header.descender;
   _is2Bit = header.is2Bit != 0;
   _intervalCount = header.intervalCount;
+  _intervalsOffset = header.intervalsOffset;
   _glyphsOffset = header.glyphsOffset;
   _bitmapOffset = header.bitmapOffset;
 
-  // Load interval table
-  if (_intervalCount > 0) {
+  // Load interval table - use lazy loading for large fonts to save memory
+  if (_intervalCount > LAZY_INTERVAL_THRESHOLD) {
+    // Lazy loading: don't allocate memory, read from file during search
+    _useLazyIntervals = true;
+    _intervals = nullptr;
+    LOG_DBG("SDFONT", "Using lazy intervals: %u entries (threshold=%u)",
+            _intervalCount, LAZY_INTERVAL_THRESHOLD);
+  } else if (_intervalCount > 0) {
+    // Small font: load intervals into memory for fast lookup
+    _useLazyIntervals = false;
     _intervals = new (std::nothrow) EpdfontInterval[_intervalCount];
     if (!_intervals) {
       LOG_ERR("SDFONT", "Interval alloc failed: %u entries", _intervalCount);
@@ -172,11 +183,46 @@ bool SdFont::loadHeader() {
 }
 
 int SdFont::findGlyphIndex(uint32_t codepoint) const {
-  if (_intervalCount == 0 || !_intervals) {
+  if (_intervalCount == 0) {
     return -1;
   }
 
-  // Binary search using upper_bound (same as EpdFont)
+  if (_useLazyIntervals) {
+    // Lazy mode: binary search reading from file
+    uint32_t low = 0;
+    uint32_t high = _intervalCount;
+    EpdfontInterval interval;
+
+    while (low < high) {
+      uint32_t mid = low + (high - low) / 2;
+      uint32_t offset = _intervalsOffset + mid * sizeof(EpdfontInterval);
+
+      // Need to cast away const for file operations (file position is mutable state)
+      HalFile& file = const_cast<HalFile&>(_fontFile);
+      if (!file.seek(offset)) {
+        return -1;
+      }
+      if (file.read(&interval, sizeof(interval)) != sizeof(interval)) {
+        return -1;
+      }
+
+      if (codepoint < interval.first) {
+        high = mid;
+      } else if (codepoint > interval.last) {
+        low = mid + 1;
+      } else {
+        // Found: codepoint is within this interval
+        return interval.offset + (codepoint - interval.first);
+      }
+    }
+    return -1;
+  }
+
+  // Memory mode: use std::upper_bound
+  if (!_intervals) {
+    return -1;
+  }
+
   const EpdfontInterval* begin = _intervals;
   const EpdfontInterval* end = _intervals + _intervalCount;
   const EpdfontInterval* it = std::upper_bound(

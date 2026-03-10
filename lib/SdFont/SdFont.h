@@ -128,11 +128,14 @@ class SdFont {
   int8_t _descender = 0;
   bool _is2Bit = false;
 
-  // Interval table (loaded once)
-  EpdfontInterval* _intervals = nullptr;
+  // Interval table - loaded into memory for small fonts, lazy for large fonts
+  static constexpr uint32_t LAZY_INTERVAL_THRESHOLD = 1000;  // Use lazy loading if > 1000 intervals
+  EpdfontInterval* _intervals = nullptr;  // nullptr if using lazy loading
+  uint32_t _intervalsOffset = 0;  // File offset for lazy loading
   uint32_t _intervalCount = 0;
   uint32_t _glyphsOffset = 0;
   uint32_t _bitmapOffset = 0;
+  bool _useLazyIntervals = false;
 
   // LRU cache for glyphs and bitmaps
   static constexpr int MAX_BITMAP_BYTES = 256;
