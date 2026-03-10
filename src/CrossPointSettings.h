@@ -66,6 +66,11 @@ class CrossPointSettings {
     ORIENTATION_COUNT
   };
 
+  // UI orientation (Portrait or Inverted only).
+  // Values match SettingInfo::Enum indices (0, 1) so the stored setting
+  // value equals the enum value directly.
+  enum UI_ORIENTATION { UI_PORTRAIT = 0, UI_INVERTED = 1 };
+
   // Front button layout options (legacy)
   // Default: Back, Confirm, Left, Right
   // Swapped: Left, Right, Back, Confirm
@@ -95,7 +100,13 @@ class CrossPointSettings {
   enum FONT_FAMILY { BOOKERLY = 0, NOTOSANS = 1, OPENDYSLEXIC = 2, FONT_FAMILY_COUNT };
   // Font size options
   enum FONT_SIZE { SMALL = 0, MEDIUM = 1, LARGE = 2, EXTRA_LARGE = 3, FONT_SIZE_COUNT };
+  // Legacy line spacing enum values kept for backward compatibility migration.
   enum LINE_COMPRESSION { TIGHT = 0, NORMAL = 1, WIDE = 2, LINE_COMPRESSION_COUNT };
+  // Line spacing factor in percent of current font line height.
+  // 100 = 1.0x (default), 80 = 0.8x, 250 = 2.5x.
+  static constexpr uint8_t LINE_SPACING_MIN = 80;
+  static constexpr uint8_t LINE_SPACING_MAX = 250;
+  static constexpr uint8_t LINE_SPACING_DEFAULT = 100;
   enum PARAGRAPH_ALIGNMENT {
     JUSTIFIED = 0,
     LEFT_ALIGN = 1,
@@ -134,8 +145,11 @@ class CrossPointSettings {
   // UI Theme
   enum UI_THEME { CLASSIC = 0, LYRA = 1, LYRA_3_COVERS = 2 };
 
-  // Image rendering in EPUB reader
+// Image rendering in EPUB reader
   enum IMAGE_RENDERING { IMAGES_DISPLAY = 0, IMAGES_PLACEHOLDER = 1, IMAGES_SUPPRESS = 2, IMAGE_RENDERING_COUNT };
+
+  // Color mode (light/dark)
+  enum COLOR_MODE { LIGHT_MODE = 0, DARK_MODE = 1 };
 
   // Sleep screen settings
   uint8_t sleepScreen = DARK;
@@ -171,7 +185,7 @@ class CrossPointSettings {
   // Reader font settings
   uint8_t fontFamily = BOOKERLY;
   uint8_t fontSize = MEDIUM;
-  uint8_t lineSpacing = NORMAL;
+  uint8_t lineSpacing = LINE_SPACING_DEFAULT;
   uint8_t paragraphAlignment = JUSTIFIED;
   // Auto-sleep timeout setting (default 10 minutes)
   uint8_t sleepTimeout = SLEEP_10_MIN;
@@ -200,6 +214,17 @@ class CrossPointSettings {
   // Image rendering mode in EPUB reader
   uint8_t imageRendering = IMAGES_DISPLAY;
 
+  // CJK-specific settings
+  // UI orientation (Portrait or Inverted only)
+  // 0 = UI_PORTRAIT, 1 = UI_INVERTED
+  uint8_t uiOrientation = UI_PORTRAIT;
+  // First line indent for paragraphs
+  uint8_t firstLineIndent = 0;
+  // Invert images in dark mode (1 = invert, 0 = keep original)
+  uint8_t invertImages = 0;
+  // Color mode (light/dark) for reader
+  uint8_t colorMode = LIGHT_MODE;
+
   ~CrossPointSettings() = default;
 
   // Get singleton instance
@@ -209,6 +234,7 @@ class CrossPointSettings {
     return (shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP) ? 10 : 400;
   }
   int getReaderFontId() const;
+  int getBuiltInReaderFontId() const;
 
   // If count_only is true, returns the number of settings items that would be written.
   uint8_t writeSettings(FsFile& file, bool count_only = false) const;

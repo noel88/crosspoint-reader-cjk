@@ -1,5 +1,6 @@
 #include "CrossPointSettings.h"
 
+#include <FontManager.h>
 #include <HalStorage.h>
 #include <JsonSettingsIO.h>
 #include <Logging.h>
@@ -55,6 +56,18 @@ void applyLegacyFrontButtonLayout(CrossPointSettings& settings) {
       settings.frontButtonLeft = CrossPointSettings::FRONT_HW_LEFT;
       settings.frontButtonRight = CrossPointSettings::FRONT_HW_RIGHT;
       break;
+  }
+}
+
+uint8_t migrateLegacyLineSpacing(const uint8_t rawValue) {
+  switch (rawValue) {
+    case CrossPointSettings::TIGHT:
+      return 90;
+    case CrossPointSettings::WIDE:
+      return 120;
+    case CrossPointSettings::NORMAL:
+    default:
+      return 100;
   }
 }
 
@@ -154,7 +167,20 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, fontSize, FONT_SIZE_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
-    readAndValidate(inputFile, lineSpacing, LINE_COMPRESSION_COUNT);
+    {
+      uint8_t rawLineSpacing = LINE_SPACING_DEFAULT;
+      serialization::readPod(inputFile, rawLineSpacing);
+      if (rawLineSpacing < LINE_COMPRESSION_COUNT) {
+        lineSpacing = migrateLegacyLineSpacing(rawLineSpacing);
+      } else if (rawLineSpacing >= LINE_SPACING_MIN && rawLineSpacing <= LINE_SPACING_MAX) {
+        lineSpacing = rawLineSpacing;
+      } else if (rawLineSpacing >= 20 && rawLineSpacing <= 60) {
+        // Legacy 20..60 slider values map to default 1.0x in the new scale.
+        lineSpacing = LINE_SPACING_DEFAULT;
+      } else {
+        lineSpacing = LINE_SPACING_DEFAULT;
+      }
+    }
     if (++settingsRead >= fileSettingsCount) break;
     readAndValidate(inputFile, paragraphAlignment, PARAGRAPH_ALIGNMENT_COUNT);
     if (++settingsRead >= fileSettingsCount) break;
@@ -212,6 +238,13 @@ bool CrossPointSettings::loadFromBinaryFile() {
     if (++settingsRead >= fileSettingsCount) break;
     serialization::readPod(inputFile, embeddedStyle);
     if (++settingsRead >= fileSettingsCount) break;
+    // CJK-specific fields appended at end for backward compatibility
+    serialization::readPod(inputFile, uiOrientation);
+    if (++settingsRead >= fileSettingsCount) break;
+    serialization::readPod(inputFile, firstLineIndent);
+    if (++settingsRead >= fileSettingsCount) break;
+    serialization::readPod(inputFile, colorMode);
+    if (++settingsRead >= fileSettingsCount) break;
   } while (false);
 
   if (frontButtonMappingRead) {
@@ -226,39 +259,12 @@ bool CrossPointSettings::loadFromBinaryFile() {
 }
 
 float CrossPointSettings::getReaderLineCompression() const {
-  switch (fontFamily) {
-    case BOOKERLY:
-    default:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.95f;
-        case NORMAL:
-        default:
-          return 1.0f;
-        case WIDE:
-          return 1.1f;
-      }
-    case NOTOSANS:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.90f;
-        case NORMAL:
-        default:
-          return 0.95f;
-        case WIDE:
-          return 1.0f;
-      }
-    case OPENDYSLEXIC:
-      switch (lineSpacing) {
-        case TIGHT:
-          return 0.90f;
-        case NORMAL:
-        default:
-          return 0.95f;
-        case WIDE:
-          return 1.0f;
-      }
-  }
+  const uint8_t clampedLineSpacing = (lineSpacing < LINE_SPACING_MIN)
+                                         ? LINE_SPACING_MIN
+                                         : ((lineSpacing > LINE_SPACING_MAX) ? LINE_SPACING_MAX : lineSpacing);
+
+  // Value is stored directly in percent of font line height (e.g. 100 => 1.0x).
+  return static_cast<float>(clampedLineSpacing) / 100.0f;
 }
 
 unsigned long CrossPointSettings::getSleepTimeoutMs() const {
@@ -294,6 +300,14 @@ int CrossPointSettings::getRefreshFrequency() const {
 }
 
 int CrossPointSettings::getReaderFontId() const {
+  const FontManager& fm = FontManager::getInstance();
+  if (fm.isExternalFontEnabled()) {
+    return -(fm.getSelectedIndex() + 1000);
+  }
+  return getBuiltInReaderFontId();
+}
+
+int CrossPointSettings::getBuiltInReaderFontId() const {
   switch (fontFamily) {
     case BOOKERLY:
     default:
