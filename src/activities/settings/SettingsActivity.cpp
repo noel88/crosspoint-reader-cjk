@@ -11,7 +11,10 @@
 #include "LanguageSelectActivity.h"
 #include "MappedInputManager.h"
 #include "OtaUpdateActivity.h"
+#include "FontSelectActivity.h"
+#include "SdFontSelectActivity.h"
 #include "SettingsList.h"
+#include <SdFontManager.h>
 #include "StatusBarSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
@@ -31,6 +34,13 @@ void SettingsActivity::onEnter() {
 
   for (const auto& setting : getSettingsList()) {
     if (setting.category == StrId::STR_NONE_OPT) continue;
+
+    // Convert Font Family from ENUM to ACTION for device UI
+    if (setting.nameId == StrId::STR_FONT_FAMILY) {
+      readerSettings.push_back(SettingInfo::Action(StrId::STR_FONT_FAMILY, SettingAction::FontFamily));
+      continue;
+    }
+
     if (setting.category == StrId::STR_CAT_DISPLAY) {
       displaySettings.push_back(setting);
     } else if (setting.category == StrId::STR_CAT_READER) {
@@ -53,6 +63,7 @@ void SettingsActivity::onEnter() {
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_LANGUAGE, SettingAction::Language));
   readerSettings.push_back(SettingInfo::Action(StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar));
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_SD_UI_FONT, SettingAction::SdUiFont));
 
   // Reset selection to first category
   selectedCategoryIndex = 0;
@@ -187,6 +198,17 @@ void SettingsActivity::toggleCurrentSetting() {
       case SettingAction::Language:
         startActivityForResult(std::make_unique<LanguageSelectActivity>(renderer, mappedInput), resultHandler);
         break;
+      case SettingAction::SdReaderFont:
+        startActivityForResult(
+            std::make_unique<SdFontSelectActivity>(renderer, mappedInput, SdFontType::READER), resultHandler);
+        break;
+      case SettingAction::SdUiFont:
+        startActivityForResult(
+            std::make_unique<SdFontSelectActivity>(renderer, mappedInput, SdFontType::UI), resultHandler);
+        break;
+      case SettingAction::FontFamily:
+        startActivityForResult(std::make_unique<FontSelectActivity>(renderer, mappedInput), resultHandler);
+        break;
       case SettingAction::None:
         // Do nothing
         break;
@@ -237,6 +259,34 @@ void SettingsActivity::render(RenderLock&&) {
           valueText = I18N.get(setting.enumValues[value]);
         } else if (setting.type == SettingType::VALUE && setting.valuePtr != nullptr) {
           valueText = std::to_string(SETTINGS.*(setting.valuePtr));
+        } else if (setting.type == SettingType::ACTION) {
+          auto& mgr = SdFontManager::getInstance();
+          if (setting.action == SettingAction::FontFamily) {
+            if (mgr.isSdFontActive(SdFontType::READER)) {
+              int idx = mgr.getSelectedIndex(SdFontType::READER);
+              const SdFontInfo* info = mgr.getFontInfo(idx);
+              if (info) {
+                valueText = info->name;
+                valueText += " [SD]";
+              }
+            } else {
+              static const StrId fontNames[] = {StrId::STR_BOOKERLY, StrId::STR_NOTO_SANS, StrId::STR_OPEN_DYSLEXIC};
+              uint8_t idx = SETTINGS.fontFamily;
+              if (idx < 3) {
+                valueText = I18N.get(fontNames[idx]);
+              }
+            }
+          } else if (setting.action == SettingAction::SdUiFont) {
+            int idx = mgr.getSelectedIndex(SdFontType::UI);
+            if (idx >= 0) {
+              const SdFontInfo* info = mgr.getFontInfo(idx);
+              if (info) {
+                valueText = info->name;
+              }
+            } else {
+              valueText = tr(STR_BUILTIN_DISABLED);
+            }
+          }
         }
         return valueText;
       },

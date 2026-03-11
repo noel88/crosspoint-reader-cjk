@@ -10,6 +10,8 @@
 
 #include "Bitmap.h"
 
+class SdFont;
+
 // Color representation: uint8_t mapped to 4x4 Bayer matrix dithering levels
 // 0 = transparent, 1-16 = gray levels (white to black)
 enum Color : uint8_t { Clear = 0x00, White = 0x01, LightGray = 0x05, DarkGray = 0x0A, Black = 0x10 };
@@ -40,6 +42,7 @@ class GfxRenderer {
   uint8_t* bwBufferChunks[BW_BUFFER_NUM_CHUNKS] = {nullptr};
   std::map<int, EpdFontFamily> fontMap;
   FontDecompressor* fontDecompressor = nullptr;
+  SdFont* sdFontFallback = nullptr;
   void freeBwBufferChunks();
   template <Color color>
   void drawPixelDither(int x, int y) const;
@@ -60,6 +63,8 @@ class GfxRenderer {
   void begin();  // must be called right after display.begin()
   void insertFont(int fontId, EpdFontFamily font);
   void setFontDecompressor(FontDecompressor* d) { fontDecompressor = d; }
+  void setSdFontFallback(SdFont* font) { sdFontFallback = font; }
+  SdFont* getSdFontFallback() const { return sdFontFallback; }
   void clearFontCache() {
     if (fontDecompressor) fontDecompressor->clearCache();
   }

@@ -1,7 +1,19 @@
 #include "GfxRenderer.h"
 
+#include <SdFont.h>
+
 #include <Logging.h>
 #include <Utf8.h>
+
+// CJK advance tightening: reduce advance width for tighter character spacing.
+// 61/64 = ~95.3% of original advance.
+// Applied consistently in measurement and rendering to avoid layout mismatches.
+static inline uint16_t tightenCjkAdvance(uint16_t advanceX, uint32_t cp) {
+  if (isCjkCodepoint(cp)) {
+    return static_cast<uint16_t>((static_cast<uint32_t>(advanceX) * 61) >> 6);
+  }
+  return advanceX;
+}
 
 const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const EpdGlyph* glyph) const {
   if (fontData->groups != nullptr) {
@@ -11,6 +23,9 @@ const uint8_t* GfxRenderer::getGlyphBitmap(const EpdFontData* fontData, const Ep
     }
     uint16_t glyphIndex = static_cast<uint16_t>(glyph - fontData->glyph);
     return fontDecompressor->getBitmap(fontData, glyph, glyphIndex);
+  }
+  if (!fontData->bitmap) {
+    return nullptr;
   }
   return &fontData->bitmap[glyph->dataOffset];
 }
@@ -67,20 +82,46 @@ template <TextRotation rotation>
 static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode renderMode,
                            const EpdFontFamily& fontFamily, const uint32_t cp, int cursorX, int cursorY,
                            const bool pixelState, const EpdFontFamily::Style style) {
-  const EpdGlyph* glyph = fontFamily.getGlyph(cp, style);
+  const EpdFontData* fontData;
+  const EpdGlyph* glyph = fontFamily.getGlyphWithData(cp, &fontData, style);
+
+  // Try SdFont fallback for missing glyphs (e.g. CJK characters not in builtin fonts)
+  const uint8_t* sdBitmap = nullptr;
+  SdFont* sdFont = renderer.getSdFontFallback();
+  if (sdFont && sdFont->isLoaded() && cp != REPLACEMENT_GLYPH) {
+    bool needFallback = !glyph;
+    if (!needFallback && glyph) {
+      const EpdGlyph* replacement = fontFamily.getGlyph(REPLACEMENT_GLYPH, style);
+      if (replacement && glyph == replacement) {
+        needFallback = true;
+      }
+    }
+    if (needFallback) {
+      const EpdGlyph* sdGlyph = sdFont->getGlyph(cp);
+      if (sdGlyph) {
+        const uint8_t* bmp = sdFont->getGlyphBitmap(sdGlyph);
+        if (bmp) {
+          glyph = sdGlyph;
+          fontData = sdFont->getData();
+          sdBitmap = bmp;
+        } else {
+          LOG_ERR("GFX", "SdFont bitmap null for U+%04X - skipping fallback", cp);
+        }
+      }
+    }
+  }
+
   if (!glyph) {
     LOG_ERR("GFX", "No glyph for codepoint %d", cp);
     return;
   }
-
-  const EpdFontData* fontData = fontFamily.getData(style);
   const bool is2Bit = fontData->is2Bit;
   const uint8_t width = glyph->width;
   const uint8_t height = glyph->height;
   const int left = glyph->left;
   const int top = glyph->top;
 
-  const uint8_t* bitmap = renderer.getGlyphBitmap(fontData, glyph);
+  const uint8_t* bitmap = sdBitmap ? sdBitmap : renderer.getGlyphBitmap(fontData, glyph);
 
   if (bitmap != nullptr) {
     // For Normal:  outer loop advances screenY, inner loop advances screenX
@@ -187,9 +228,45 @@ int GfxRenderer::getTextWidth(const int fontId, const char* text, const EpdFontF
     return 0;
   }
 
-  int w = 0, h = 0;
-  fontIt->second.getTextDimensions(text, &w, &h, style);
-  return w;
+  // If no SdFont fallback, use standard measurement
+  if (!sdFontFallback || !sdFontFallback->isLoaded()) {
+    int w = 0, h = 0;
+    fontIt->second.getTextDimensions(text, &w, &h, style);
+    return w;
+  }
+
+  // Measure with SdFont fallback for missing glyphs
+  const auto& fontFamily = fontIt->second;
+  int totalWidth = 0;
+  const unsigned char* p = reinterpret_cast<const unsigned char*>(text);
+  while (*p) {
+    uint32_t cp = utf8NextCodepoint(&p);
+    if (cp == 0) break;
+
+    const EpdGlyph* glyph = fontFamily.getGlyph(cp, style);
+
+    // Check if primary font returned replacement glyph
+    if (cp != REPLACEMENT_GLYPH) {
+      bool needFallback = !glyph;
+      if (!needFallback && glyph) {
+        const EpdGlyph* replacement = fontFamily.getGlyph(REPLACEMENT_GLYPH, style);
+        if (replacement && glyph == replacement) {
+          needFallback = true;
+        }
+      }
+      if (needFallback) {
+        const EpdGlyph* sdGlyph = sdFontFallback->getGlyph(cp);
+        if (sdGlyph) {
+          glyph = sdGlyph;
+        }
+      }
+    }
+
+    if (glyph) {
+      totalWidth += fp4::toPixel(tightenCjkAdvance(glyph->advanceX, cp));
+    }
+  }
+  return totalWidth;
 }
 
 void GfxRenderer::drawCenteredText(const int fontId, const int y, const char* text, const bool black,
@@ -245,12 +322,30 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
     lastBaseX = fp4::toPixel(xPosFP);  // snap 12.4 fixed-point to nearest pixel
     const EpdGlyph* glyph = font.getGlyph(cp, style);
 
-    lastBaseAdvanceFP = glyph ? glyph->advanceX : 0;
+    // SdFont fallback for advance calculation (must match renderCharImpl fallback)
+    if (sdFontFallback && sdFontFallback->isLoaded() && cp != REPLACEMENT_GLYPH) {
+      bool needFallback = !glyph;
+      if (!needFallback && glyph) {
+        const EpdGlyph* replacement = font.getGlyph(REPLACEMENT_GLYPH, style);
+        if (replacement && glyph == replacement) {
+          needFallback = true;
+        }
+      }
+      if (needFallback) {
+        const EpdGlyph* sdGlyph = sdFontFallback->getGlyph(cp);
+        if (sdGlyph) {
+          glyph = sdGlyph;
+        }
+      }
+    }
+
+    const uint16_t effectiveAdvance = glyph ? tightenCjkAdvance(glyph->advanceX, cp) : 0;
+    lastBaseAdvanceFP = effectiveAdvance;
     lastBaseTop = glyph ? glyph->top : 0;
 
     renderCharImpl<TextRotation::None>(*this, renderMode, font, cp, lastBaseX, yPos, black, style);
     if (glyph) {
-      xPosFP += glyph->advanceX;  // 12.4 fixed-point advance
+      xPosFP += effectiveAdvance;  // 12.4 fixed-point advance (CJK-tightened)
     }
     prevCp = cp;
   }
@@ -980,7 +1075,25 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
       widthFP += font.getKerning(prevCp, cp, style);  // 4.4 fixed-point kern
     }
     const EpdGlyph* glyph = font.getGlyph(cp, style);
-    if (glyph) widthFP += glyph->advanceX;  // 12.4 fixed-point advance
+
+    // SdFont fallback for advance calculation
+    if (sdFontFallback && sdFontFallback->isLoaded() && cp != REPLACEMENT_GLYPH) {
+      bool needFallback = !glyph;
+      if (!needFallback && glyph) {
+        const EpdGlyph* replacement = font.getGlyph(REPLACEMENT_GLYPH, style);
+        if (replacement && glyph == replacement) {
+          needFallback = true;
+        }
+      }
+      if (needFallback) {
+        const EpdGlyph* sdGlyph = sdFontFallback->getGlyph(cp);
+        if (sdGlyph) {
+          glyph = sdGlyph;
+        }
+      }
+    }
+
+    if (glyph) widthFP += tightenCjkAdvance(glyph->advanceX, cp);  // 12.4 fixed-point advance
     prevCp = cp;
   }
   return fp4::toPixel(widthFP);  // snap 12.4 fixed-point to nearest pixel
@@ -1063,12 +1176,30 @@ void GfxRenderer::drawTextRotated90CW(const int fontId, const int x, const int y
     lastBaseY = fp4::toPixel(yPosFP);  // snap 12.4 fixed-point to nearest pixel
     const EpdGlyph* glyph = font.getGlyph(cp, style);
 
-    lastBaseAdvanceFP = glyph ? glyph->advanceX : 0;  // 12.4 fixed-point
+    // SdFont fallback for advance calculation (must match renderCharImpl fallback)
+    if (sdFontFallback && sdFontFallback->isLoaded() && cp != REPLACEMENT_GLYPH) {
+      bool needFallback = !glyph;
+      if (!needFallback && glyph) {
+        const EpdGlyph* replacement = font.getGlyph(REPLACEMENT_GLYPH, style);
+        if (replacement && glyph == replacement) {
+          needFallback = true;
+        }
+      }
+      if (needFallback) {
+        const EpdGlyph* sdGlyph = sdFontFallback->getGlyph(cp);
+        if (sdGlyph) {
+          glyph = sdGlyph;
+        }
+      }
+    }
+
+    const uint16_t effectiveAdvance = glyph ? tightenCjkAdvance(glyph->advanceX, cp) : 0;
+    lastBaseAdvanceFP = effectiveAdvance;  // 12.4 fixed-point
     lastBaseTop = glyph ? glyph->top : 0;
 
     renderCharImpl<TextRotation::Rotated90CW>(*this, renderMode, font, cp, x, lastBaseY, black, style);
     if (glyph) {
-      yPosFP -= glyph->advanceX;  // 12.4 fixed-point advance (subtract for rotated)
+      yPosFP -= effectiveAdvance;  // 12.4 fixed-point advance (subtract for rotated)
     }
     prevCp = cp;
   }

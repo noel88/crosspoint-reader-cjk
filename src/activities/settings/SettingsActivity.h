@@ -21,6 +21,9 @@ enum class SettingAction {
   ClearCache,
   CheckForUpdates,
   Language,
+  SdReaderFont,
+  SdUiFont,
+  FontFamily,
 };
 
 struct SettingInfo {
