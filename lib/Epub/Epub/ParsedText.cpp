@@ -450,6 +450,65 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   return true;
 }
 
+// Vertical layout: each word's "height" in a vertical column is its advance width
+// (CJK characters are square, so advanceX ≈ advanceY)
+std::vector<uint16_t> ParsedText::calculateWordHeights(const GfxRenderer& renderer, const int fontId) {
+  // For vertical layout, character "height" = advanceX (square CJK glyphs)
+  return calculateWordWidths(renderer, fontId);
+}
+
+// Vertical column layout for writing-mode: vertical-rl
+// Characters flow top→bottom, columns flow right→left.
+// Each column is emitted as a TextBlock where wordXpos stores Y positions.
+void ParsedText::layoutVerticalColumns(const GfxRenderer& renderer, const int fontId, const uint16_t columnHeight,
+                                       const std::function<void(std::shared_ptr<TextBlock>)>& processColumn) {
+  if (words.empty()) return;
+
+  auto wordHeights = calculateWordHeights(renderer, fontId);
+  const size_t totalWords = words.size();
+
+  size_t currentIndex = 0;
+  while (currentIndex < totalWords) {
+    const size_t columnStart = currentIndex;
+    int16_t ypos = 0;
+    std::vector<int16_t> columnYPos;
+    columnYPos.reserve(32);
+
+    // Fill column top→bottom
+    while (currentIndex < totalWords) {
+      const int charHeight = wordHeights[currentIndex];
+      if (ypos + charHeight > columnHeight && currentIndex > columnStart) {
+        break;  // Column full
+      }
+      columnYPos.push_back(ypos);
+      ypos += charHeight;
+      ++currentIndex;
+    }
+
+    const size_t columnWordCount = currentIndex - columnStart;
+
+    // Build TextBlock for this column
+    std::vector<std::string> columnWords(std::make_move_iterator(words.begin() + columnStart),
+                                         std::make_move_iterator(words.begin() + currentIndex));
+    std::vector<EpdFontFamily::Style> columnWordStyles(wordStyles.begin() + columnStart,
+                                                       wordStyles.begin() + currentIndex);
+
+    for (auto& word : columnWords) {
+      if (containsSoftHyphen(word)) {
+        stripSoftHyphensInPlace(word);
+      }
+    }
+
+    processColumn(std::make_shared<TextBlock>(std::move(columnWords), std::move(columnYPos),
+                                              std::move(columnWordStyles), blockStyle));
+  }
+
+  // All words consumed
+  words.clear();
+  wordStyles.clear();
+  wordContinues.clear();
+}
+
 void ParsedText::extractLine(const size_t breakIndex, const int pageWidth, const int spaceWidth,
                              const std::vector<uint16_t>& wordWidths, const std::vector<bool>& continuesVec,
                              const std::vector<size_t>& lineBreakIndices,

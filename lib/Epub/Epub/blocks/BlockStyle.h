@@ -9,6 +9,7 @@
  */
 struct BlockStyle {
   CssTextAlign alignment = CssTextAlign::Justify;
+  CssWritingMode writingMode = CssWritingMode::HorizontalTb;
 
   // Spacing (in pixels)
   int16_t marginTop = 0;
@@ -58,6 +59,8 @@ struct BlockStyle {
       combinedBlockStyle.alignment = alignment;
       combinedBlockStyle.textAlignDefined = textAlignDefined;
     }
+    // Writing mode: inherit from parent unless child overrides
+    combinedBlockStyle.writingMode = child.writingMode != CssWritingMode::HorizontalTb ? child.writingMode : writingMode;
     return combinedBlockStyle;
   }
 
@@ -91,6 +94,9 @@ struct BlockStyle {
       blockStyle.alignment = blockStyle.textAlignDefined ? cssStyle.textAlign : CssTextAlign::Justify;
     } else {
       blockStyle.alignment = paragraphAlignment;
+    }
+    if (cssStyle.hasWritingMode()) {
+      blockStyle.writingMode = cssStyle.writingMode;
     }
     return blockStyle;
   }

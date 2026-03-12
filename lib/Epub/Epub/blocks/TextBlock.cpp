@@ -3,12 +3,18 @@
 #include <GfxRenderer.h>
 #include <Logging.h>
 #include <Serialization.h>
+#include <Utf8.h>
 
 void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int x, const int y) const {
   // Validate iterator bounds before rendering
   if (words.size() != wordXpos.size() || words.size() != wordStyles.size()) {
     LOG_ERR("TXB", "Render skipped: size mismatch (words=%u, xpos=%u, styles=%u)\n", (uint32_t)words.size(),
             (uint32_t)wordXpos.size(), (uint32_t)wordStyles.size());
+    return;
+  }
+
+  if (blockStyle.writingMode == CssWritingMode::VerticalRl) {
+    renderVertical(renderer, fontId, x, y);
     return;
   }
 
@@ -41,6 +47,38 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
   }
 }
 
+void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, const int x, const int y) const {
+  // Vertical rendering: x = column X position, wordXpos[i] = Y offset within column
+  // CJK characters drawn upright, punctuation rotated/repositioned, Latin rotated 90° CW
+  const int lineHeight = renderer.getLineHeight(fontId);
+
+  for (size_t i = 0; i < words.size(); i++) {
+    const int charY = wordXpos[i] + y;
+    const EpdFontFamily::Style currentStyle = wordStyles[i];
+    const std::string& word = words[i];
+
+    const auto* ptr = reinterpret_cast<const unsigned char*>(word.c_str());
+    const uint32_t cp = utf8NextCodepoint(&ptr);
+    if (cp == 0) continue;
+
+    if (isVerticalRotatedPunctuation(cp)) {
+      // Horizontal strokes (ー〜—…) and brackets (「」『』): rotate 90° CW
+      renderer.drawTextRotated90CW(fontId, x, charY, word.c_str(), true, currentStyle);
+    } else if (isVerticalRepositionedPunctuation(cp)) {
+      // Commas/periods (、。): draw upright, shifted to top-right of character cell
+      const int xOffset = lineHeight / 2;
+      const int yOffset = -(lineHeight / 2);
+      renderer.drawText(fontId, x + xOffset, charY + yOffset, word.c_str(), true, currentStyle);
+    } else if (isCjkCodepoint(cp)) {
+      // Regular CJK character: draw upright
+      renderer.drawText(fontId, x, charY, word.c_str(), true, currentStyle);
+    } else {
+      // Latin/number: rotate 90° CW
+      renderer.drawTextRotated90CW(fontId, x, charY, word.c_str(), true, currentStyle);
+    }
+  }
+}
+
 bool TextBlock::serialize(FsFile& file) const {
   if (words.size() != wordXpos.size() || words.size() != wordStyles.size()) {
     LOG_ERR("TXB", "Serialization failed: size mismatch (words=%u, xpos=%u, styles=%u)\n", words.size(),
@@ -67,6 +105,7 @@ bool TextBlock::serialize(FsFile& file) const {
   serialization::writePod(file, blockStyle.paddingRight);
   serialization::writePod(file, blockStyle.textIndent);
   serialization::writePod(file, blockStyle.textIndentDefined);
+  serialization::writePod(file, blockStyle.writingMode);
 
   return true;
 }
@@ -108,6 +147,7 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   serialization::readPod(file, blockStyle.paddingRight);
   serialization::readPod(file, blockStyle.textIndent);
   serialization::readPod(file, blockStyle.textIndentDefined);
+  serialization::readPod(file, blockStyle.writingMode);
 
   return std::unique_ptr<TextBlock>(
       new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles), blockStyle));
