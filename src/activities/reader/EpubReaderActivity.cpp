@@ -104,9 +104,6 @@ void EpubReaderActivity::onExit() {
 
   // Restore UI SdFont fallback for menu/settings rendering
   SdFont* uiFont = SdFontManager::getInstance().getActiveFont(SdFontType::UI);
-  if (!uiFont) {
-    uiFont = SdFontManager::getInstance().getActiveFont(SdFontType::READER);
-  }
   renderer.setSdFontFallback((uiFont && uiFont->isLoaded()) ? uiFont : nullptr);
 
   // Reset orientation back to portrait for the rest of the UI

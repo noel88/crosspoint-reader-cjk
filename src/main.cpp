@@ -291,13 +291,12 @@ void setup() {
 
   // Set SD font as UI fallback for CJK glyph rendering
   SdFont* uiSdFont = SdFontManager::getInstance().getActiveFont(SdFontType::UI);
-  if (!uiSdFont) {
-    // Fall back to reader SD font if no UI font is set
-    uiSdFont = SdFontManager::getInstance().getActiveFont(SdFontType::READER);
-  }
   if (uiSdFont && uiSdFont->isLoaded()) {
     renderer.setSdFontFallback(uiSdFont);
-    LOG_DBG("MAIN", "SD font fallback set for UI rendering");
+    LOG_DBG("MAIN", "SD UI font fallback set for UI rendering");
+  } else {
+    renderer.setSdFontFallback(nullptr);
+    LOG_DBG("MAIN", "No SD UI font, using builtin");
   }
 
   activityManager.goToBoot();

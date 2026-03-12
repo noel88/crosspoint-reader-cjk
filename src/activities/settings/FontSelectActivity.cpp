@@ -87,11 +87,8 @@ void FontSelectActivity::applySelection() {
     mgr.saveSettings();
   }
 
-  // Update renderer's SdFont fallback (uses UI font, or reader font as fallback)
+  // Update renderer's SdFont fallback (uses UI font only)
   SdFont* uiFont = mgr.getActiveFont(SdFontType::UI);
-  if (!uiFont) {
-    uiFont = mgr.getActiveFont(SdFontType::READER);
-  }
   renderer.setSdFontFallback((uiFont && uiFont->isLoaded()) ? uiFont : nullptr);
 }
 
