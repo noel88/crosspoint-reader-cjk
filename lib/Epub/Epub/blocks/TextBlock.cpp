@@ -5,6 +5,7 @@
 #include <Serialization.h>
 #include <Utf8.h>
 
+
 void TextBlock::collectCodepoints(std::vector<uint32_t>& out, size_t max) const {
   if (max == 0 || out.size() >= max) {
     return;
@@ -40,6 +41,11 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
     return;
   }
 
+  if (blockStyle.writingMode == CssWritingMode::VerticalRl) {
+    renderVertical(renderer, fontId, x, y);
+    return;
+  }
+
   for (size_t i = 0; i < words.size(); i++) {
     const int wordX = wordXpos[i] + x;
     const EpdFontFamily::Style currentStyle = wordStyles[i];
@@ -65,6 +71,52 @@ void TextBlock::render(const GfxRenderer& renderer, const int fontId, const int 
       }
 
       renderer.drawLine(startX, underlineY, startX + underlineWidth, underlineY, true);
+    }
+  }
+}
+
+void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, const int x, const int y) const {
+  // Vertical rendering: x = column X position, wordXpos[i] = Y offset within column
+  // CJK characters drawn upright, punctuation rotated/repositioned, Latin rotated 90° CW
+  const int lineHeight = renderer.getLineHeight(fontId);
+
+  for (size_t i = 0; i < words.size(); i++) {
+    const int charY = wordXpos[i] + y;
+    const EpdFontFamily::Style currentStyle = wordStyles[i];
+    const std::string& word = words[i];
+
+    const auto* ptr = reinterpret_cast<const unsigned char*>(word.c_str());
+    const uint32_t cp = utf8NextCodepoint(&ptr);
+    if (cp == 0) continue;
+
+    if (isVerticalOpeningBracket(cp)) {
+      // Opening brackets: draw upright, shifted to top-right corner
+      // This preserves the bracket shape for vertical text
+      const int xOffset = lineHeight / 4;
+      const int yOffset = -(lineHeight / 4);
+      renderer.drawText(fontId, x + xOffset, charY + yOffset, word.c_str(), true, currentStyle);
+    } else if (isVerticalRotatedPunctuation(cp)) {
+      // Horizontal strokes (ー〜—…) and closing brackets: rotate 90° CW
+      if (cp >= 0x3009 && cp <= 0x301B) {
+        // Closing brackets: draw upright, shifted to bottom-right corner
+        const int xOffset = lineHeight / 4;
+        const int yOffset = lineHeight / 4;
+        renderer.drawText(fontId, x + xOffset, charY + yOffset, word.c_str(), true, currentStyle);
+      } else {
+        // Horizontal strokes: rotate 90° CW
+        renderer.drawTextRotated90CW(fontId, x, charY, word.c_str(), true, currentStyle);
+      }
+    } else if (isVerticalRepositionedPunctuation(cp)) {
+      // Commas/periods (、。): draw upright, shifted to top-right of character cell
+      const int xOffset = lineHeight / 2;
+      const int yOffset = -(lineHeight / 2);
+      renderer.drawText(fontId, x + xOffset, charY + yOffset, word.c_str(), true, currentStyle);
+    } else if (isCjkCodepoint(cp)) {
+      // Regular CJK character: draw upright
+      renderer.drawText(fontId, x, charY, word.c_str(), true, currentStyle);
+    } else {
+      // Latin/number: rotate 90° CW
+      renderer.drawTextRotated90CW(fontId, x, charY, word.c_str(), true, currentStyle);
     }
   }
 }
@@ -95,6 +147,7 @@ bool TextBlock::serialize(FsFile& file) const {
   serialization::writePod(file, blockStyle.paddingRight);
   serialization::writePod(file, blockStyle.textIndent);
   serialization::writePod(file, blockStyle.textIndentDefined);
+  serialization::writePod(file, blockStyle.writingMode);
 
   return true;
 }
@@ -136,6 +189,7 @@ std::unique_ptr<TextBlock> TextBlock::deserialize(FsFile& file) {
   serialization::readPod(file, blockStyle.paddingRight);
   serialization::readPod(file, blockStyle.textIndent);
   serialization::readPod(file, blockStyle.textIndentDefined);
+  serialization::readPod(file, blockStyle.writingMode);
 
   return std::unique_ptr<TextBlock>(
       new TextBlock(std::move(words), std::move(wordXpos), std::move(wordStyles), blockStyle));

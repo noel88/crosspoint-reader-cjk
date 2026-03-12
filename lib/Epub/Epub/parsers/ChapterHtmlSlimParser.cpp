@@ -205,7 +205,11 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
     anchorData.push_back({std::move(pendingAnchorId), static_cast<uint16_t>(completedPageCount)});
     pendingAnchorId.clear();
   }
-  currentTextBlock.reset(new ParsedText(extraParagraphSpacing, hyphenationEnabled, blockStyle));
+  auto effectiveBlockStyle = blockStyle;
+  if (sectionWritingMode != CssWritingMode::HorizontalTb) {
+    effectiveBlockStyle.writingMode = sectionWritingMode;
+  }
+  currentTextBlock.reset(new ParsedText(extraParagraphSpacing, hyphenationEnabled, effectiveBlockStyle));
   wordsExtractedInBlock = 0;
 }
 
@@ -580,6 +584,12 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       CssStyle inlineStyle = CssParser::parseInlineStyle(styleAttr);
       cssStyle.applyOver(inlineStyle);
     }
+  }
+
+  // Detect writing-mode from html/body tags or inline style
+  if (cssStyle.hasWritingMode() && (strcmp(name, "html") == 0 || strcmp(name, "body") == 0)) {
+    self->sectionWritingMode = cssStyle.writingMode;
+    LOG_DBG("EHP", "Detected writing-mode: %s", cssStyle.writingMode == CssWritingMode::VerticalRl ? "vertical-rl" : "horizontal-tb");
   }
 
   const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
@@ -1115,6 +1125,37 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
   return true;
 }
 
+void ChapterHtmlSlimParser::addColumnToPage(std::shared_ptr<TextBlock> column) {
+  // Column width = lineHeight (CJK characters are square)
+  const int columnWidth = renderer.getLineHeight(fontId) * lineCompression;
+
+  if (!currentPage) {
+    currentPage.reset(new Page());
+    currentPageNextColumnX = static_cast<int16_t>(viewportWidth - columnWidth);
+  }
+
+  // Page break: no more room for another column (going right→left)
+  if (currentPageNextColumnX < 0) {
+    completePageFn(std::move(currentPage));
+    completedPageCount++;
+    currentPage.reset(new Page());
+    currentPageNextColumnX = static_cast<int16_t>(viewportWidth - columnWidth);
+  }
+
+  // Track cumulative words for footnote assignment
+  wordsExtractedInBlock += column->wordCount();
+  auto footnoteIt = pendingFootnotes.begin();
+  while (footnoteIt != pendingFootnotes.end() && footnoteIt->first <= wordsExtractedInBlock) {
+    currentPage->addFootnote(footnoteIt->second.number, footnoteIt->second.href);
+    ++footnoteIt;
+  }
+  pendingFootnotes.erase(pendingFootnotes.begin(), footnoteIt);
+
+  // Place column at (columnX, topMargin=0) — wordXpos in TextBlock holds Y offsets
+  currentPage->elements.push_back(std::make_shared<PageLine>(column, currentPageNextColumnX, 0));
+  currentPageNextColumnX -= columnWidth;
+}
+
 void ChapterHtmlSlimParser::addLineToPage(std::shared_ptr<TextBlock> line) {
   const int lineHeight = renderer.getLineHeight(fontId) * lineCompression;
 
@@ -1172,9 +1213,18 @@ void ChapterHtmlSlimParser::makePages() {
   const uint16_t effectiveWidth =
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
 
-  currentTextBlock->layoutAndExtractLines(
-      renderer, fontId, effectiveWidth,
-      [this](const std::shared_ptr<TextBlock>& textBlock) { addLineToPage(textBlock); });
+  if (blockStyle.writingMode == CssWritingMode::VerticalRl) {
+    // Vertical layout: columns flow top→bottom, right→left
+    const uint16_t columnHeight =
+        (horizontalInset < viewportHeight) ? static_cast<uint16_t>(viewportHeight - horizontalInset) : viewportHeight;
+    currentTextBlock->layoutVerticalColumns(
+        renderer, fontId, columnHeight,
+        [this](const std::shared_ptr<TextBlock>& textBlock) { addColumnToPage(textBlock); });
+  } else {
+    currentTextBlock->layoutAndExtractLines(
+        renderer, fontId, effectiveWidth,
+        [this](const std::shared_ptr<TextBlock>& textBlock) { addLineToPage(textBlock); });
+  }
 
   // Fallback: transfer any remaining pending footnotes to current page.
   // Normally addLineToPage handles this via word-index tracking, but this catches

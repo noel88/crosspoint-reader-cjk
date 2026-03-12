@@ -317,6 +317,18 @@ void CssParser::parseDeclarationIntoStyle(const std::string& decl, CssStyle& sty
       style.imageWidth = len;
       style.defined.imageWidth = 1;
     }
+  } else if (propNameBuf == "writing-mode") {
+    const std::string v = normalized(propValueBuf);
+    if (v == "vertical-rl") {
+      style.writingMode = CssWritingMode::VerticalRl;
+      style.defined.writingMode = 1;
+    } else if (v == "vertical-lr") {
+      style.writingMode = CssWritingMode::VerticalLr;
+      style.defined.writingMode = 1;
+    } else if (v == "horizontal-tb") {
+      style.writingMode = CssWritingMode::HorizontalTb;
+      style.defined.writingMode = 1;
+    }
   }
 }
 
@@ -693,6 +705,9 @@ bool CssParser::saveToCache() const {
     writeLength(style.imageHeight);
     writeLength(style.imageWidth);
 
+    // Write writingMode
+    file.write(static_cast<uint8_t>(style.writingMode));
+
     // Write defined flags as uint16_t
     uint16_t definedBits = 0;
     if (style.defined.textAlign) definedBits |= 1 << 0;
@@ -710,6 +725,7 @@ bool CssParser::saveToCache() const {
     if (style.defined.paddingRight) definedBits |= 1 << 12;
     if (style.defined.imageHeight) definedBits |= 1 << 13;
     if (style.defined.imageWidth) definedBits |= 1 << 14;
+    if (style.defined.writingMode) definedBits |= 1 << 15;
     file.write(reinterpret_cast<const uint8_t*>(&definedBits), sizeof(definedBits));
   }
 
@@ -820,6 +836,14 @@ bool CssParser::loadFromCache() {
       return false;
     }
 
+    // Read writingMode
+    if (file.read(&enumVal, 1) != 1) {
+      rulesBySelector_.clear();
+      file.close();
+      return false;
+    }
+    style.writingMode = static_cast<CssWritingMode>(enumVal);
+
     // Read defined flags
     uint16_t definedBits = 0;
     if (file.read(&definedBits, sizeof(definedBits)) != sizeof(definedBits)) {
@@ -842,6 +866,7 @@ bool CssParser::loadFromCache() {
     style.defined.paddingRight = (definedBits & 1 << 12) != 0;
     style.defined.imageHeight = (definedBits & 1 << 13) != 0;
     style.defined.imageWidth = (definedBits & 1 << 14) != 0;
+    style.defined.writingMode = (definedBits & 1 << 15) != 0;
 
     rulesBySelector_[selector] = style;
   }

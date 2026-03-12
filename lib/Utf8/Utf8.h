@@ -26,6 +26,73 @@ inline bool isCjkCodepoint(const uint32_t cp) {
   return false;
 }
 
+// Punctuation that needs 90° clockwise rotation in vertical text mode.
+// Horizontal strokes become vertical.
+inline bool isVerticalRotatedPunctuation(const uint32_t cp) {
+  switch (cp) {
+    // Horizontal strokes → rotate to vertical
+    case 0x30FC:  // ー katakana prolonged sound mark
+    case 0x301C:  // 〜 wave dash
+    case 0xFF5E:  // ～ fullwidth tilde
+    case 0x2014:  // — em dash
+    case 0x2015:  // ― horizontal bar
+    case 0x2026:  // … horizontal ellipsis
+    case 0xFF0D:  // － fullwidth hyphen-minus
+    // CJK closing brackets → rotate 90° CW for vertical orientation
+    case 0x3009:  // 〉
+    case 0x300B:  // 》
+    case 0x300D:  // 」
+    case 0x300F:  // 』
+    case 0x3011:  // 】
+    case 0x3015:  // 〕
+    case 0x3017:  // 〗
+    case 0x3019:  // 〙
+    case 0x301B:  // 〛
+    case 0xFF09:  // ）
+    case 0xFF3D:  // ］
+    case 0xFF5D:  // ｝
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Opening brackets that need 90° counter-clockwise rotation in vertical text mode.
+// This ensures they visually appear as opening brackets when rotated.
+inline bool isVerticalOpeningBracket(const uint32_t cp) {
+  switch (cp) {
+    case 0x3008:  // 〈
+    case 0x300A:  // 《
+    case 0x300C:  // 「
+    case 0x300E:  // 『
+    case 0x3010:  // 【
+    case 0x3014:  // 〔
+    case 0x3016:  // 〖
+    case 0x3018:  // 〘
+    case 0x301A:  // 〚
+    case 0xFF08:  // （
+    case 0xFF3B:  // ［
+    case 0xFF5B:  // ｛
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Punctuation that needs repositioning (top-right offset) in vertical text mode.
+// These marks are drawn upright but shifted within the character cell.
+inline bool isVerticalRepositionedPunctuation(const uint32_t cp) {
+  switch (cp) {
+    case 0x3001:  // 、 ideographic comma
+    case 0x3002:  // 。 ideographic full stop
+    case 0xFF0C:  // ， fullwidth comma
+    case 0xFF0E:  // ． fullwidth full stop
+      return true;
+    default:
+      return false;
+  }
+}
+
 // Returns true for Unicode combining diacritical marks that should not advance the cursor.
 inline bool utf8IsCombiningMark(const uint32_t cp) {
   return (cp >= 0x0300 && cp <= 0x036F)      // Combining Diacritical Marks
