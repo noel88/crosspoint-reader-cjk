@@ -27,7 +27,7 @@ inline bool isCjkCodepoint(const uint32_t cp) {
 }
 
 // Punctuation that needs 90° clockwise rotation in vertical text mode.
-// Horizontal strokes become vertical, brackets rotate to vertical orientation.
+// Horizontal strokes become vertical.
 inline bool isVerticalRotatedPunctuation(const uint32_t cp) {
   switch (cp) {
     // Horizontal strokes → rotate to vertical
@@ -38,31 +38,41 @@ inline bool isVerticalRotatedPunctuation(const uint32_t cp) {
     case 0x2015:  // ― horizontal bar
     case 0x2026:  // … horizontal ellipsis
     case 0xFF0D:  // － fullwidth hyphen-minus
-    // CJK brackets → rotate for vertical orientation
-    case 0x3008:  // 〈
+    // CJK closing brackets → rotate 90° CW for vertical orientation
     case 0x3009:  // 〉
-    case 0x300A:  // 《
     case 0x300B:  // 》
-    case 0x300C:  // 「
     case 0x300D:  // 」
-    case 0x300E:  // 『
     case 0x300F:  // 』
-    case 0x3010:  // 【
     case 0x3011:  // 】
-    case 0x3014:  // 〔
     case 0x3015:  // 〕
-    case 0x3016:  // 〖
     case 0x3017:  // 〗
-    case 0x3018:  // 〘
     case 0x3019:  // 〙
-    case 0x301A:  // 〚
     case 0x301B:  // 〛
-    case 0xFF08:  // （
     case 0xFF09:  // ）
-    case 0xFF3B:  // ［
     case 0xFF3D:  // ］
-    case 0xFF5B:  // ｛
     case 0xFF5D:  // ｝
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Opening brackets that need 90° counter-clockwise rotation in vertical text mode.
+// This ensures they visually appear as opening brackets when rotated.
+inline bool isVerticalOpeningBracket(const uint32_t cp) {
+  switch (cp) {
+    case 0x3008:  // 〈
+    case 0x300A:  // 《
+    case 0x300C:  // 「
+    case 0x300E:  // 『
+    case 0x3010:  // 【
+    case 0x3014:  // 〔
+    case 0x3016:  // 〖
+    case 0x3018:  // 〘
+    case 0x301A:  // 〚
+    case 0xFF08:  // （
+    case 0xFF3B:  // ［
+    case 0xFF5B:  // ｛
       return true;
     default:
       return false;

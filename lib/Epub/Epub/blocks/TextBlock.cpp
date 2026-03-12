@@ -61,9 +61,23 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
     const uint32_t cp = utf8NextCodepoint(&ptr);
     if (cp == 0) continue;
 
-    if (isVerticalRotatedPunctuation(cp)) {
-      // Horizontal strokes (ー〜—…) and brackets (「」『』): rotate 90° CW
-      renderer.drawTextRotated90CW(fontId, x, charY, word.c_str(), true, currentStyle);
+    if (isVerticalOpeningBracket(cp)) {
+      // Opening brackets: draw upright, shifted to top-right corner
+      // This preserves the bracket shape for vertical text
+      const int xOffset = lineHeight / 4;
+      const int yOffset = -(lineHeight / 4);
+      renderer.drawText(fontId, x + xOffset, charY + yOffset, word.c_str(), true, currentStyle);
+    } else if (isVerticalRotatedPunctuation(cp)) {
+      // Horizontal strokes (ー〜—…) and closing brackets: rotate 90° CW
+      if (cp >= 0x3009 && cp <= 0x301B) {
+        // Closing brackets: draw upright, shifted to bottom-right corner
+        const int xOffset = lineHeight / 4;
+        const int yOffset = lineHeight / 4;
+        renderer.drawText(fontId, x + xOffset, charY + yOffset, word.c_str(), true, currentStyle);
+      } else {
+        // Horizontal strokes: rotate 90° CW
+        renderer.drawTextRotated90CW(fontId, x, charY, word.c_str(), true, currentStyle);
+      }
     } else if (isVerticalRepositionedPunctuation(cp)) {
       // Commas/periods (、。): draw upright, shifted to top-right of character cell
       const int xOffset = lineHeight / 2;
