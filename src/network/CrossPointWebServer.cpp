@@ -332,7 +332,7 @@ void CrossPointWebServer::handleStatus() const {
   server->send(200, "application/json", json);
 }
 
-void CrossPointWebServer::scanFiles(const char* path, const std::function<void(FileInfo)>& callback) const {
+void CrossPointWebServer::scanFiles(const char* path, const std::function<void(const FileInfo&)>& callback) const {
   FsFile root = Storage.open(path);
   if (!root) {
     LOG_DBG("WEB", "Failed to open directory: %s", path);
@@ -368,7 +368,8 @@ void CrossPointWebServer::scanFiles(const char* path, const std::function<void(F
 
     if (!shouldHide) {
       FileInfo info;
-      info.name = fileName;
+      strncpy(info.name, fileName.c_str(), sizeof(info.name) - 1);
+      info.name[sizeof(info.name) - 1] = '\0';
       info.isDirectory = file.isDirectory();
 
       if (info.isDirectory) {
@@ -429,7 +430,7 @@ void CrossPointWebServer::handleFileListData() const {
     const size_t written = serializeJson(doc, output, outputSize);
     if (written >= outputSize) {
       // JSON output truncated; skip this entry to avoid sending malformed JSON
-      LOG_DBG("WEB", "Skipping file entry with oversized JSON for name: %s", info.name.c_str());
+      LOG_DBG("WEB", "Skipping file entry with oversized JSON for name: %s", info.name);
       return;
     }
 

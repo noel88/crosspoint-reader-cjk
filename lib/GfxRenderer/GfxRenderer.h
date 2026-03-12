@@ -51,6 +51,12 @@ class GfxRenderer {
   bool invertImagesInDarkMode = false;
   // Skip dark mode inversion for images (cover art should not be inverted)
   mutable bool skipDarkModeForImages = false;
+  // Custom character spacing (used for CJK rendering)
+  int8_t asciiLetterSpacing = 0;
+  int8_t asciiDigitSpacing = 0;
+  int8_t cjkSpacing = 0;
+  // Reader fallback font ID for CJK characters
+  int readerFallbackFontId = -1;
   void freeBwBufferChunks();
   template <Color color>
   void drawPixelDither(int x, int y) const;
@@ -164,10 +170,6 @@ class GfxRenderer {
   std::vector<std::string> wrappedText(int fontId, const char* text, int maxWidth, int maxLines,
                                        EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
 
-  // UI Components
-  void drawButtonHints(int fontId, const char* btn1, const char* btn2, const char* btn3, const char* btn4);
-  void drawSideButtonHints(int fontId, const char* topBtn, const char* bottomBtn) const;
-
   // Helper for drawing rotated text (90 degrees clockwise, for side buttons)
   void drawTextRotated90CW(int fontId, int x, int y, const char* text, bool black = true,
                            EpdFontFamily::Style style = EpdFontFamily::REGULAR) const;
@@ -181,7 +183,7 @@ class GfxRenderer {
   RenderMode getRenderMode() const { return renderMode; }
   void copyGrayscaleLsbBuffers() const;
   void copyGrayscaleMsbBuffers() const;
-  void displayGrayBuffer(bool turnOffScreen = false, bool darkMode = false) const;
+  void displayGrayBuffer() const;
   bool storeBwBuffer();    // Returns true if buffer was stored successfully
   void restoreBwBuffer();  // Restore and free the stored buffer
   void cleanupGrayscaleWithFrameBuffer() const;

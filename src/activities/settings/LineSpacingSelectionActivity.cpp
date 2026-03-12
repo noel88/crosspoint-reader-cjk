@@ -15,7 +15,7 @@ constexpr int kLargeStep = 10;
 }  // namespace
 
 void LineSpacingSelectionActivity::onEnter() {
-  ActivityWithSubactivity::onEnter();
+  Activity::onEnter();
   if (value < CrossPointSettings::LINE_SPACING_MIN) {
     value = CrossPointSettings::LINE_SPACING_MIN;
   } else if (value > CrossPointSettings::LINE_SPACING_MAX) {
@@ -24,7 +24,7 @@ void LineSpacingSelectionActivity::onEnter() {
   requestUpdate();
 }
 
-void LineSpacingSelectionActivity::onExit() { ActivityWithSubactivity::onExit(); }
+void LineSpacingSelectionActivity::onExit() { Activity::onExit(); }
 
 void LineSpacingSelectionActivity::adjustValue(const int delta) {
   value += delta;
@@ -37,11 +37,6 @@ void LineSpacingSelectionActivity::adjustValue(const int delta) {
 }
 
 void LineSpacingSelectionActivity::loop() {
-  if (subActivity) {
-    subActivity->loop();
-    return;
-  }
-
   // This sub-page is opened from Settings on Confirm *press*.
   // Using release events here would consume the same key-up and immediately exit.
   if (mappedInput.wasPressed(MappedInputManager::Button::Back)) {
@@ -60,7 +55,7 @@ void LineSpacingSelectionActivity::loop() {
   buttonNavigator.onPressAndContinuous({MappedInputManager::Button::Down}, [this] { adjustValue(-kLargeStep); });
 }
 
-void LineSpacingSelectionActivity::render(Activity::RenderLock&&) {
+void LineSpacingSelectionActivity::render(RenderLock&&) {
   renderer.clearScreen();
 
   const auto metrics = UITheme::getInstance().getMetrics();
