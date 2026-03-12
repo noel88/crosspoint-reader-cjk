@@ -73,6 +73,8 @@ inline const std::vector<SettingInfo>& getSettingsList() {
                           StrId::STR_CAT_READER),
       SettingInfo::Toggle(StrId::STR_INVERT_IMAGES, &CrossPointSettings::invertImages, "invertImages",
                           StrId::STR_CAT_READER),
+      SettingInfo::Toggle(StrId::STR_VERTICAL_READING, &CrossPointSettings::verticalReading, "verticalReading",
+                          StrId::STR_CAT_READER),
 
       // --- Controls ---
       SettingInfo::Enum(StrId::STR_SIDE_BTN_LAYOUT, &CrossPointSettings::sideButtonLayout,

@@ -1213,7 +1213,7 @@ void ChapterHtmlSlimParser::makePages() {
   const uint16_t effectiveWidth =
       (horizontalInset < viewportWidth) ? static_cast<uint16_t>(viewportWidth - horizontalInset) : viewportWidth;
 
-  if (blockStyle.writingMode == CssWritingMode::VerticalRl) {
+  if (verticalReadingEnabled && blockStyle.writingMode == CssWritingMode::VerticalRl) {
     // Vertical layout: columns flow top→bottom, right→left
     const uint16_t columnHeight =
         (horizontalInset < viewportHeight) ? static_cast<uint16_t>(viewportHeight - horizontalInset) : viewportHeight;

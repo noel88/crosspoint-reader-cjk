@@ -224,6 +224,8 @@ class CrossPointSettings {
   uint8_t invertImages = 0;
   // Color mode (light/dark) for reader
   uint8_t colorMode = LIGHT_MODE;
+  // Vertical reading mode for CJK text (1 = enabled, 0 = disabled)
+  uint8_t verticalReading = 1;
 
   ~CrossPointSettings() = default;
 
