@@ -115,8 +115,8 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
       // Regular CJK character: draw upright
       renderer.drawText(fontId, x, charY, word.c_str(), true, currentStyle);
     } else {
-      // Latin/number: rotate 90° CW
-      renderer.drawTextRotated90CW(fontId, x, charY, word.c_str(), true, currentStyle);
+      // Latin/number: draw upright (one character per line, same as CJK)
+      renderer.drawText(fontId, x, charY, word.c_str(), true, currentStyle);
     }
   }
 }
