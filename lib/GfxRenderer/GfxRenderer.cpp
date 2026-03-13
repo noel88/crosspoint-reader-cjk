@@ -5,25 +5,37 @@
 #include <Logging.h>
 #include <Utf8.h>
 
+// Check if codepoint is a horizontal stroke character
+static inline bool isHorizontalStrokeChar(uint32_t cp) {
+  switch (cp) {
+    case 0x30FC:  // ー katakana prolonged sound mark (chōon)
+    case 0x301C:  // 〜 wave dash
+    case 0xFF5E:  // ～ fullwidth tilde
+    case 0x2014:  // — em dash
+    case 0x2015:  // ― horizontal bar
+    case 0xFF0D:  // － fullwidth hyphen-minus
+      return true;
+    default:
+      return false;
+  }
+}
+
 // CJK advance tightening: reduce advance width for tighter character spacing.
 // 61/64 = ~95.3% of original advance.
 // Applied consistently in measurement and rendering to avoid layout mismatches.
 // Excludes horizontal stroke characters (ー〜－ etc.) that would overlap when tightened.
-static inline uint16_t tightenCjkAdvance(uint16_t advanceX, uint32_t cp) {
+// Also excludes characters immediately before horizontal strokes (via nextCp parameter).
+static inline uint16_t tightenCjkAdvance(uint16_t advanceX, uint32_t cp, uint32_t nextCp = 0) {
   if (isCjkCodepoint(cp)) {
     // Exclude horizontal stroke characters from tightening
-    // These characters are as wide as their advance and would overlap
-    switch (cp) {
-      case 0x30FC:  // ー katakana prolonged sound mark (chōon)
-      case 0x301C:  // 〜 wave dash
-      case 0xFF5E:  // ～ fullwidth tilde
-      case 0x2014:  // — em dash
-      case 0x2015:  // ― horizontal bar
-      case 0xFF0D:  // － fullwidth hyphen-minus
-        return advanceX;  // No tightening for horizontal strokes
-      default:
-        return static_cast<uint16_t>((static_cast<uint32_t>(advanceX) * 61) >> 6);
+    if (isHorizontalStrokeChar(cp)) {
+      return advanceX;
     }
+    // Also exclude if next character is horizontal stroke (prevent overlap)
+    if (nextCp != 0 && isHorizontalStrokeChar(nextCp)) {
+      return advanceX;
+    }
+    return static_cast<uint16_t>((static_cast<uint32_t>(advanceX) * 61) >> 6);
   }
   return advanceX;
 }

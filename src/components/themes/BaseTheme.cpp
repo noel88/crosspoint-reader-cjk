@@ -4,6 +4,7 @@
 #include <HalPowerManager.h>
 #include <HalStorage.h>
 #include <Logging.h>
+#include <SdFontManager.h>
 
 #include <cstdint>
 #include <string>
@@ -704,6 +705,13 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     int titleMarginLeftAdjusted = std::max(titleMarginLeft, titleMarginRight);
     int availableTitleSpace = rendererableScreenWidth - 2 * titleMarginLeftAdjusted;
 
+    // Temporarily switch to UI font fallback for status bar title (CJK support)
+    SdFont* prevFallback = renderer.getSdFontFallback();
+    SdFont* uiFont = SdFontManager::getInstance().getActiveFont(SdFontType::UI);
+    if (uiFont && uiFont->isLoaded()) {
+      renderer.setSdFontFallback(uiFont);
+    }
+
     int titleWidth;
     titleWidth = renderer.getTextWidth(UI_10_FONT_ID, title.c_str());
     if (titleWidth > availableTitleSpace) {
@@ -720,6 +728,9 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
                       titleMarginLeftAdjusted + metrics.statusBarHorizontalMargin + orientedMarginLeft +
                           (availableTitleSpace - titleWidth) / 2,
                       textY, title.c_str());
+
+    // Restore previous font fallback
+    renderer.setSdFontFallback(prevFallback);
   }
 }
 
