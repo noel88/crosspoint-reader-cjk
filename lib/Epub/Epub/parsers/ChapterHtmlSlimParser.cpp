@@ -206,7 +206,7 @@ void ChapterHtmlSlimParser::startNewTextBlock(const BlockStyle& blockStyle) {
     pendingAnchorId.clear();
   }
   auto effectiveBlockStyle = blockStyle;
-  if (sectionWritingMode != CssWritingMode::HorizontalTb) {
+  if (verticalReadingEnabled && sectionWritingMode != CssWritingMode::HorizontalTb) {
     effectiveBlockStyle.writingMode = sectionWritingMode;
   }
   currentTextBlock.reset(new ParsedText(extraParagraphSpacing, hyphenationEnabled, effectiveBlockStyle));

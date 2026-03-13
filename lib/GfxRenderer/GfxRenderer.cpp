@@ -5,20 +5,7 @@
 #include <Logging.h>
 #include <Utf8.h>
 
-// Check if codepoint is a horizontal stroke character
-static inline bool isHorizontalStrokeChar(uint32_t cp) {
-  switch (cp) {
-    case 0x30FC:  // ー katakana prolonged sound mark (chōon)
-    case 0x301C:  // 〜 wave dash
-    case 0xFF5E:  // ～ fullwidth tilde
-    case 0x2014:  // — em dash
-    case 0x2015:  // ― horizontal bar
-    case 0xFF0D:  // － fullwidth hyphen-minus
-      return true;
-    default:
-      return false;
-  }
-}
+// isHorizontalStrokeChar() is defined in Utf8.h (shared with layout measurement)
 
 // CJK advance tightening: reduce advance width for tighter character spacing.
 // 61/64 = ~95.3% of original advance.
@@ -377,7 +364,14 @@ void GfxRenderer::drawText(const int fontId, const int x, const int y, const cha
       }
     }
 
-    const uint16_t effectiveAdvance = glyph ? tightenCjkAdvance(glyph->advanceX, cp) : 0;
+    // Peek at next codepoint only when current char is CJK (tightening only applies to CJK)
+    uint32_t nextCp = 0;
+    if (isCjkCodepoint(cp)) {
+      const auto* peek = reinterpret_cast<const uint8_t*>(text);
+      if (*peek) nextCp = utf8NextCodepoint(&peek);
+    }
+
+    const uint16_t effectiveAdvance = glyph ? tightenCjkAdvance(glyph->advanceX, cp, nextCp) : 0;
     lastBaseAdvanceFP = effectiveAdvance;
     lastBaseTop = glyph ? glyph->top : 0;
 
@@ -1093,7 +1087,8 @@ int GfxRenderer::getKerning(const int fontId, const uint32_t leftCp, const uint3
   return fp4::toPixel(kernFP);                                           // snap 4.4 fixed-point to nearest pixel
 }
 
-int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFamily::Style style) const {
+int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFamily::Style style,
+                                 const uint32_t trailingNextCp) const {
   const auto fontIt = fontMap.find(fontId);
   if (fontIt == fontMap.end()) {
     LOG_ERR("GFX", "Font %d not found", fontId);
@@ -1131,7 +1126,14 @@ int GfxRenderer::getTextAdvanceX(const int fontId, const char* text, EpdFontFami
       }
     }
 
-    if (glyph) widthFP += tightenCjkAdvance(glyph->advanceX, cp);  // 12.4 fixed-point advance
+    // Peek at next codepoint only when current char is CJK (tightening only applies to CJK)
+    uint32_t nextCp = 0;
+    if (isCjkCodepoint(cp)) {
+      const auto* peek = reinterpret_cast<const uint8_t*>(text);
+      nextCp = (*peek) ? utf8NextCodepoint(&peek) : trailingNextCp;
+    }
+
+    if (glyph) widthFP += tightenCjkAdvance(glyph->advanceX, cp, nextCp);  // 12.4 fixed-point advance
     prevCp = cp;
   }
   return fp4::toPixel(widthFP);  // snap 12.4 fixed-point to nearest pixel

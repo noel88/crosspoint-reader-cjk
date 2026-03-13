@@ -26,6 +26,22 @@ inline bool isCjkCodepoint(const uint32_t cp) {
   return false;
 }
 
+// Horizontal stroke CJK characters that should NOT be advance-tightened.
+// Also used to skip tightening on the character immediately before them.
+inline bool isHorizontalStrokeChar(const uint32_t cp) {
+  switch (cp) {
+    case 0x30FC:  // ー katakana prolonged sound mark (chōon)
+    case 0x301C:  // 〜 wave dash
+    case 0xFF5E:  // ～ fullwidth tilde
+    case 0x2014:  // — em dash
+    case 0x2015:  // ― horizontal bar
+    case 0xFF0D:  // － fullwidth hyphen-minus
+      return true;
+    default:
+      return false;
+  }
+}
+
 // Punctuation that needs 90° clockwise rotation in vertical text mode.
 // Horizontal strokes become vertical.
 inline bool isVerticalRotatedPunctuation(const uint32_t cp) {

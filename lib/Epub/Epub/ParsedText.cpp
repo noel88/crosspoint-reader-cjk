@@ -64,13 +64,14 @@ void stripSoftHyphensInPlace(std::string& word) {
 // Uses advance width (sum of glyph advances + kerning) rather than bounding box width so that italic glyph overhangs
 // don't inflate inter-word spacing.
 uint16_t measureWordWidth(const GfxRenderer& renderer, const int fontId, const std::string& word,
-                          const EpdFontFamily::Style style, const bool appendHyphen = false) {
+                          const EpdFontFamily::Style style, const bool appendHyphen = false,
+                          const uint32_t trailingNextCp = 0) {
   if (word.size() == 1 && word[0] == ' ' && !appendHyphen) {
     return renderer.getSpaceWidth(fontId, style);
   }
   const bool hasSoftHyphen = containsSoftHyphen(word);
   if (!hasSoftHyphen && !appendHyphen) {
-    return renderer.getTextAdvanceX(fontId, word.c_str(), style);
+    return renderer.getTextAdvanceX(fontId, word.c_str(), style, trailingNextCp);
   }
 
   std::string sanitized = word;
@@ -80,7 +81,7 @@ uint16_t measureWordWidth(const GfxRenderer& renderer, const int fontId, const s
   if (appendHyphen) {
     sanitized.push_back('-');
   }
-  return renderer.getTextAdvanceX(fontId, sanitized.c_str(), style);
+  return renderer.getTextAdvanceX(fontId, sanitized.c_str(), style, trailingNextCp);
 }
 
 }  // namespace
@@ -140,7 +141,14 @@ std::vector<uint16_t> ParsedText::calculateWordWidths(const GfxRenderer& rendere
   wordWidths.reserve(words.size());
 
   for (size_t i = 0; i < words.size(); ++i) {
-    wordWidths.push_back(measureWordWidth(renderer, fontId, words[i], wordStyles[i]));
+    // Peek at the next word's first codepoint so tightenCjkAdvance can avoid
+    // tightening the last character when followed by a horizontal-stroke char.
+    // Only needed when the current word ends with a CJK codepoint.
+    uint32_t nextWordCp = 0;
+    if (i + 1 < words.size() && isCjkCodepoint(lastCodepoint(words[i]))) {
+      nextWordCp = firstCodepoint(words[i + 1]);
+    }
+    wordWidths.push_back(measureWordWidth(renderer, fontId, words[i], wordStyles[i], false, nextWordCp));
   }
 
   return wordWidths;

@@ -104,7 +104,10 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
         renderer.drawText(fontId, x + xOffset, charY + yOffset, word.c_str(), true, currentStyle);
       } else {
         // Horizontal strokes: rotate 90° CW
-        renderer.drawTextRotated90CW(fontId, x, charY, word.c_str(), true, currentStyle);
+        // CW rotation renders glyphs extending ABOVE cursorY, but vertical layout
+        // allocates space BELOW charY.  Offset by lineHeight (≈ fullwidth advance)
+        // so the rotated glyph sits within its top-to-bottom layout cell.
+        renderer.drawTextRotated90CW(fontId, x, charY + lineHeight, word.c_str(), true, currentStyle);
       }
     } else if (isVerticalRepositionedPunctuation(cp)) {
       // Commas/periods (、。): draw upright, shifted to top-right of character cell
