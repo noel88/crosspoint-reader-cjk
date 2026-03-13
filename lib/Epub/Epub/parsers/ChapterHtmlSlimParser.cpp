@@ -858,11 +858,29 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
           continue;
         }
       }
+    }
 
-      // UTF-8 boundary-safe buffer overflow: check if the full character fits before appending.
-      // This prevents splitting a multi-byte UTF-8 sequence across two buffer flushes which
-      // would produce invalid UTF-8 and garbled text.
-      if (self->partWordBufferIndex + cpLen > MAX_WORD_SIZE) {
+    // If we're about to run out of space, then cut the word off and start a new one.
+    // We must avoid splitting multi-byte UTF-8 sequences across word boundaries,
+    // otherwise the trailing bytes become orphaned continuation bytes that the
+    // decoder can't interpret.
+    if (self->partWordBufferIndex >= MAX_WORD_SIZE) {
+      int safeLen = utf8SafeTruncateBuffer(self->partWordBuffer, self->partWordBufferIndex);
+
+      if (safeLen < self->partWordBufferIndex && safeLen > 0) {
+        // Incomplete UTF-8 sequence at the end — save it before flushing
+        int overflow = self->partWordBufferIndex - safeLen;
+        char saved[4];
+        for (int j = 0; j < overflow; j++) {
+          saved[j] = self->partWordBuffer[safeLen + j];
+        }
+        self->partWordBufferIndex = safeLen;
+        self->flushPartWordBuffer();
+        for (int j = 0; j < overflow; j++) {
+          self->partWordBuffer[j] = saved[j];
+        }
+        self->partWordBufferIndex = overflow;
+      } else {
         self->flushPartWordBuffer();
       }
     }

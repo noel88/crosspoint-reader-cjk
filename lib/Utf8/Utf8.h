@@ -109,6 +109,11 @@ inline bool isVerticalRepositionedPunctuation(const uint32_t cp) {
   }
 }
 
+// Truncate a raw char buffer to the last complete UTF-8 codepoint boundary.
+// Returns the new length (<= len). If the buffer ends mid-sequence, the
+// incomplete trailing bytes are excluded.
+int utf8SafeTruncateBuffer(const char* buf, int len);
+
 // Returns true for Unicode combining diacritical marks that should not advance the cursor.
 inline bool utf8IsCombiningMark(const uint32_t cp) {
   return (cp >= 0x0300 && cp <= 0x036F)      // Combining Diacritical Marks
