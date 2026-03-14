@@ -158,6 +158,12 @@ inline bool isShortNumber(const char* str) {
   return str[2] == '\0';  // exactly 2 digits
 }
 
+// Returns true for fullwidth digit codepoints (０-９, U+FF10-U+FF19).
+// These are in the CJK Fullwidth Forms range but need special handling in vertical mode.
+inline bool isFullwidthDigit(const uint32_t cp) {
+  return cp >= 0xFF10 && cp <= 0xFF19;
+}
+
 // Truncate a raw char buffer to the last complete UTF-8 codepoint boundary.
 // Returns the new length (<= len). If the buffer ends mid-sequence, the
 // incomplete trailing bytes are excluded.

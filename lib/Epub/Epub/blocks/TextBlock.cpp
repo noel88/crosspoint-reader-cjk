@@ -127,12 +127,38 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
       const int xOffset = lineHeight / 2;
       const int yOffset = -(lineHeight / 2);
       renderer.drawText(fontId, x + xOffset, charY + yOffset, word.c_str(), true, currentStyle);
+    } else if (isFullwidthDigit(cp)) {
+      // Fullwidth digits (０-９): check if next word is also a fullwidth digit for tate-chu-yoko.
+      // Tate-chu-yoko: combine 2 consecutive fullwidth digits into one horizontal number.
+      uint32_t nextCp = 0;
+      if (i + 1 < words.size()) {
+        const auto* np = reinterpret_cast<const unsigned char*>(words[i + 1].c_str());
+        nextCp = utf8NextCodepoint(&np);
+      }
+      if (isFullwidthDigit(nextCp)) {
+        // Convert both fullwidth digits to ASCII and render as horizontal pair
+        char pair[3];
+        pair[0] = static_cast<char>('0' + (cp - 0xFF10));
+        pair[1] = static_cast<char>('0' + (nextCp - 0xFF10));
+        pair[2] = '\0';
+        const int numW = renderer.getTextWidth(fontId, pair, currentStyle);
+        renderer.drawText(fontId, x + (lineHeight - numW) / 2, charY, pair, true, currentStyle);
+        i++;  // skip next word (consumed as part of pair)
+      } else {
+        // Single fullwidth digit: convert to ASCII and draw upright centered
+        char digit[2];
+        digit[0] = static_cast<char>('0' + (cp - 0xFF10));
+        digit[1] = '\0';
+        const int digitW = renderer.getTextWidth(fontId, digit, currentStyle);
+        renderer.drawText(fontId, x + (lineHeight - digitW) / 2, charY, digit, true, currentStyle);
+      }
     } else if (isCjkCodepoint(cp)) {
       // Regular CJK character: draw upright
       renderer.drawText(fontId, x, charY, word.c_str(), true, currentStyle);
     } else {
-      // DEBUG: render ALL Latin/number chars with CW rotation to test if this branch is reached.
-      // CW rotation used because brackets work correctly with CW in vertical mode.
+      // Latin in vertical mode: split into individual characters,
+      // each drawn upright with fixed centering within the CJK column.
+      const int xCenter = lineHeight / 4;
       const auto* p = reinterpret_cast<const unsigned char*>(word.c_str());
       int yOff = 0;
       while (*p) {
@@ -142,7 +168,7 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
         char ch[5];
         memcpy(ch, start, cLen);
         ch[cLen] = '\0';
-        renderer.drawTextRotated90CW(fontId, x, charY + yOff + lineHeight, ch, true, currentStyle);
+        renderer.drawText(fontId, x + xCenter, charY + yOff, ch, true, currentStyle);
         yOff += lineHeight;
       }
     }

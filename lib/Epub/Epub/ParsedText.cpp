@@ -467,6 +467,22 @@ std::vector<uint16_t> ParsedText::calculateWordHeights(const GfxRenderer& render
 
     if (cp == 0) {
       wordHeights.push_back(0);
+    } else if (isFullwidthDigit(cp)) {
+      // Fullwidth digit: check if next word is also fullwidth digit (tate-chu-yoko pair)
+      uint32_t nextCp = 0;
+      if (i + 1 < words.size()) {
+        const auto* np = reinterpret_cast<const unsigned char*>(words[i + 1].c_str());
+        nextCp = utf8NextCodepoint(&np);
+      }
+      if (isFullwidthDigit(nextCp)) {
+        // Tate-chu-yoko pair: both digits share one lineHeight cell
+        wordHeights.push_back(static_cast<uint16_t>(lh));
+        wordHeights.push_back(0);  // second digit consumed, zero height
+        i++;  // skip next word
+      } else {
+        // Single fullwidth digit: one lineHeight cell
+        wordHeights.push_back(static_cast<uint16_t>(lh));
+      }
     } else if (isCjkCodepoint(cp) || isVerticalOpeningBracket(cp) ||
                isVerticalRotatedPunctuation(cp) || isVerticalRepositionedPunctuation(cp)) {
       // CJK / bracket / punctuation: use advance width (square glyphs)
@@ -476,7 +492,7 @@ std::vector<uint16_t> ParsedText::calculateWordHeights(const GfxRenderer& render
       }
       wordHeights.push_back(measureWordWidth(renderer, fontId, words[i], wordStyles[i], false, nextWordCp));
     } else if (isShortNumber(words[i].c_str())) {
-      // Tate-chu-yoko: 1-2 digit numbers occupy a single lineHeight cell.
+      // Tate-chu-yoko: 1-2 ASCII digit numbers occupy a single lineHeight cell.
       wordHeights.push_back(static_cast<uint16_t>(lh));
     } else {
       // Latin: count characters, each occupies one lineHeight cell.
