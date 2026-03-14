@@ -64,7 +64,9 @@ inline bool isVerticalRotatedPunctuation(const uint32_t cp) {
     case 0x3017:  // 〗
     case 0x3019:  // 〙
     case 0x301B:  // 〛
+    case 0x003E:  // > ASCII greater-than
     case 0xFF09:  // ）
+    case 0xFF1E:  // ＞ fullwidth greater-than
     case 0xFF3D:  // ］
     case 0xFF5D:  // ｝
       return true;
@@ -82,8 +84,12 @@ inline uint32_t mirrorBracket(const uint32_t cp) {
     return cp ^ 1;
   }
   switch (cp) {
+    case 0x003C: return 0x003E;  // <→>
+    case 0x003E: return 0x003C;  // >→<
     case 0xFF08: return 0xFF09;  // （→）
     case 0xFF09: return 0xFF08;  // ）→（
+    case 0xFF1C: return 0xFF1E;  // ＜→＞
+    case 0xFF1E: return 0xFF1C;  // ＞→＜
     case 0xFF3B: return 0xFF3D;  // ［→］
     case 0xFF3D: return 0xFF3B;  // ］→［
     case 0xFF5B: return 0xFF5D;  // ｛→｝
@@ -96,6 +102,7 @@ inline uint32_t mirrorBracket(const uint32_t cp) {
 // This ensures they visually appear as opening brackets when rotated.
 inline bool isVerticalOpeningBracket(const uint32_t cp) {
   switch (cp) {
+    case 0x003C:  // < ASCII less-than
     case 0x3008:  // 〈
     case 0x300A:  // 《
     case 0x300C:  // 「
@@ -106,6 +113,7 @@ inline bool isVerticalOpeningBracket(const uint32_t cp) {
     case 0x3018:  // 〘
     case 0x301A:  // 〚
     case 0xFF08:  // （
+    case 0xFF1C:  // ＜ fullwidth less-than
     case 0xFF3B:  // ［
     case 0xFF5B:  // ｛
       return true;

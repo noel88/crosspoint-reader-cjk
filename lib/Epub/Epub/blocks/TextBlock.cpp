@@ -98,13 +98,27 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
       // CW rotation reverses bracket orientation, so mirroring first
       // produces the correct vertical form while keeping CW's accurate
       // X positioning (no offset needed).
+      // Use the original bracket's advance (= allocated cell height) instead of
+      // lineHeight to prevent the rotated glyph from extending past the cell.
       const uint32_t mirrored = mirrorBracket(cp);
       char buf[4];
-      buf[0] = static_cast<char>(0xE0 | (mirrored >> 12));
-      buf[1] = static_cast<char>(0x80 | ((mirrored >> 6) & 0x3F));
-      buf[2] = static_cast<char>(0x80 | (mirrored & 0x3F));
-      buf[3] = '\0';
-      renderer.drawTextRotated90CW(fontId, x, charY + lineHeight, buf, true, currentStyle);
+      int len = 0;
+      if (mirrored < 0x80) {
+        buf[0] = static_cast<char>(mirrored);
+        len = 1;
+      } else if (mirrored < 0x800) {
+        buf[0] = static_cast<char>(0xC0 | (mirrored >> 6));
+        buf[1] = static_cast<char>(0x80 | (mirrored & 0x3F));
+        len = 2;
+      } else {
+        buf[0] = static_cast<char>(0xE0 | (mirrored >> 12));
+        buf[1] = static_cast<char>(0x80 | ((mirrored >> 6) & 0x3F));
+        buf[2] = static_cast<char>(0x80 | (mirrored & 0x3F));
+        len = 3;
+      }
+      buf[len] = '\0';
+      const int cellHeight = renderer.getTextAdvanceX(fontId, word.c_str(), currentStyle);
+      renderer.drawTextRotated90CW(fontId, x, charY + cellHeight, buf, true, currentStyle);
     } else if (isVerticalRotatedPunctuation(cp)) {
       // Horizontal strokes (ー〜—…): rotate 90° CW.
       // CW renders glyphs extending ABOVE cursorY, offset by lineHeight.
