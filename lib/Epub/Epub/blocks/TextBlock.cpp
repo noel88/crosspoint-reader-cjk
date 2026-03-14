@@ -89,11 +89,17 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
     const uint32_t cp = utf8NextCodepoint(&ptr);
     if (cp == 0) continue;
 
-    if (isVerticalOpeningBracket(cp) || isVerticalRotatedPunctuation(cp)) {
-      // Brackets and horizontal strokes: rotate 90° CW for vertical text.
-      // CW rotation renders glyphs extending ABOVE cursorY, but vertical layout
-      // allocates space BELOW charY.  Offset by lineHeight (≈ fullwidth advance)
-      // so the rotated glyph sits within its top-to-bottom layout cell.
+    // Determine if this is a bracket (opening or closing) needing CCW rotation
+    const bool isBracket = isVerticalOpeningBracket(cp) ||
+                           (isVerticalRotatedPunctuation(cp) && !isHorizontalStrokeChar(cp) && cp != 0x2026);
+
+    if (isBracket) {
+      // Brackets: rotate 90° CCW for correct vertical text orientation.
+      // CCW renders glyphs extending BELOW cursorY, matching top-to-bottom layout.
+      renderer.drawTextRotated90CCW(fontId, x, charY, word.c_str(), true, currentStyle);
+    } else if (isVerticalRotatedPunctuation(cp)) {
+      // Horizontal strokes (ー〜—…): rotate 90° CW.
+      // CW renders glyphs extending ABOVE cursorY, offset by lineHeight.
       renderer.drawTextRotated90CW(fontId, x, charY + lineHeight, word.c_str(), true, currentStyle);
     } else if (isVerticalRepositionedPunctuation(cp)) {
       // Commas/periods (、。): draw upright, shifted to top-right of character cell
