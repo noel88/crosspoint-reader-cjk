@@ -94,26 +94,22 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
                            (isVerticalRotatedPunctuation(cp) && !isHorizontalStrokeChar(cp) && cp != 0x2026);
 
     if (isBracket) {
-      // Brackets: mirror the pair (opening↔closing) then CW rotate.
-      // CW rotation reverses bracket orientation, so mirroring first
-      // produces the correct vertical form while keeping CW's accurate
-      // X positioning (no offset needed).
-      // Use the original bracket's advance (= allocated cell height) instead of
-      // lineHeight to prevent the rotated glyph from extending past the cell.
-      const uint32_t mirrored = mirrorBracket(cp);
+      // Symmetric brackets (〈〉（）etc.): mirror then CW rotate.
+      // Corner brackets (「」『』): CW rotation alone is correct (L-shape rotates naturally).
+      const uint32_t renderCp = isCornerStyleBracket(cp) ? cp : mirrorBracket(cp);
       char buf[4];
       int len = 0;
-      if (mirrored < 0x80) {
-        buf[0] = static_cast<char>(mirrored);
+      if (renderCp < 0x80) {
+        buf[0] = static_cast<char>(renderCp);
         len = 1;
-      } else if (mirrored < 0x800) {
-        buf[0] = static_cast<char>(0xC0 | (mirrored >> 6));
-        buf[1] = static_cast<char>(0x80 | (mirrored & 0x3F));
+      } else if (renderCp < 0x800) {
+        buf[0] = static_cast<char>(0xC0 | (renderCp >> 6));
+        buf[1] = static_cast<char>(0x80 | (renderCp & 0x3F));
         len = 2;
       } else {
-        buf[0] = static_cast<char>(0xE0 | (mirrored >> 12));
-        buf[1] = static_cast<char>(0x80 | ((mirrored >> 6) & 0x3F));
-        buf[2] = static_cast<char>(0x80 | (mirrored & 0x3F));
+        buf[0] = static_cast<char>(0xE0 | (renderCp >> 12));
+        buf[1] = static_cast<char>(0x80 | ((renderCp >> 6) & 0x3F));
+        buf[2] = static_cast<char>(0x80 | (renderCp & 0x3F));
         len = 3;
       }
       buf[len] = '\0';

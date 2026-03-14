@@ -75,6 +75,18 @@ inline bool isVerticalRotatedPunctuation(const uint32_t cp) {
   }
 }
 
+// Corner-style (L-shaped) brackets: CW rotation alone produces the correct vertical form.
+// Symmetric brackets (〈〉（）etc.) need mirroring before CW to get the right orientation.
+inline bool isCornerStyleBracket(const uint32_t cp) {
+  switch (cp) {
+    case 0x300C: case 0x300D:  // 「」
+    case 0x300E: case 0x300F:  // 『』
+      return true;
+    default:
+      return false;
+  }
+}
+
 // Mirror a bracket codepoint: swap opening↔closing for CW-rotated vertical rendering.
 // CW rotation reverses bracket orientation, so mirroring the pair before rotation
 // produces the correct vertical form (e.g., 〈→〉 CW = ∧, matching vertical ︿).
