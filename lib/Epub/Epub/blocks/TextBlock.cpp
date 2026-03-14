@@ -139,8 +139,21 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
       // Regular CJK character: draw upright
       renderer.drawText(fontId, x, charY, word.c_str(), true, currentStyle);
     } else {
-      // Latin/number: draw upright (one character per line, same as CJK)
-      renderer.drawText(fontId, x, charY, word.c_str(), true, currentStyle);
+      // Latin/number in vertical mode: split into individual characters,
+      // each drawn upright and centered horizontally within the CJK column.
+      const auto* p = reinterpret_cast<const unsigned char*>(word.c_str());
+      int yOff = 0;
+      while (*p) {
+        const unsigned char* start = p;
+        utf8NextCodepoint(&p);
+        const int cLen = static_cast<int>(p - start);
+        char ch[5];
+        memcpy(ch, start, cLen);
+        ch[cLen] = '\0';
+        const int charW = renderer.getTextWidth(fontId, ch, currentStyle);
+        renderer.drawText(fontId, x + (lineHeight - charW) / 2, charY + yOff, ch, true, currentStyle);
+        yOff += renderer.getTextAdvanceX(fontId, ch, currentStyle);
+      }
     }
   }
 }
