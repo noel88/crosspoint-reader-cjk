@@ -476,11 +476,12 @@ std::vector<uint16_t> ParsedText::calculateWordHeights(const GfxRenderer& render
       }
       wordHeights.push_back(measureWordWidth(renderer, fontId, words[i], wordStyles[i], false, nextWordCp));
     } else {
-      // Latin/number: count characters, each occupies one lineHeight cell
+      // Latin/number: count characters, each occupies one lineHeight cell.
+      // +1 cell for inter-word spacing (space consumed during tokenization).
       int charCount = 0;
       const auto* p = reinterpret_cast<const unsigned char*>(words[i].c_str());
       while (*p) { utf8NextCodepoint(&p); charCount++; }
-      wordHeights.push_back(static_cast<uint16_t>(charCount * lh));
+      wordHeights.push_back(static_cast<uint16_t>((charCount + 1) * lh));
     }
   }
 
