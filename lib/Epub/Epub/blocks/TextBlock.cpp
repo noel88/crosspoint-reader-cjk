@@ -118,7 +118,14 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
       }
       buf[len] = '\0';
       const int cellHeight = renderer.getTextAdvanceX(fontId, word.c_str(), currentStyle);
-      renderer.drawTextRotated90CW(fontId, x, charY + cellHeight, buf, true, currentStyle);
+      // Closing brackets: shift down slightly to add gap with preceding character.
+      // CW rotation renders upward from cursorY, so increasing Y pushes glyph down.
+      const bool isClosing = !isVerticalOpeningBracket(cp);
+      const int yPad = isClosing ? (cellHeight / 10) : 0;
+      const int cursorY = charY + cellHeight + yPad;
+      // Pseudo-bold: draw twice with 1px X offset for thicker bracket strokes
+      renderer.drawTextRotated90CW(fontId, x, cursorY, buf, true, currentStyle);
+      renderer.drawTextRotated90CW(fontId, x + 1, cursorY, buf, true, currentStyle);
     } else if (isVerticalRotatedPunctuation(cp)) {
       // Horizontal strokes (ー〜—…): rotate 90° CW.
       // CW renders glyphs extending ABOVE cursorY, offset by lineHeight.
