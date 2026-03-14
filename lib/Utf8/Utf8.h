@@ -148,6 +148,16 @@ inline bool isVerticalRepositionedPunctuation(const uint32_t cp) {
   }
 }
 
+// Returns true if the string contains only ASCII digits and is 1-2 chars long.
+// Used for tate-chu-yoko (縦中横): short numbers rendered horizontally in vertical text.
+inline bool isShortNumber(const char* str) {
+  if (!str || !str[0]) return false;
+  if (str[0] < '0' || str[0] > '9') return false;
+  if (!str[1]) return true;  // single digit
+  if (str[1] < '0' || str[1] > '9') return false;
+  return str[2] == '\0';  // exactly 2 digits
+}
+
 // Truncate a raw char buffer to the last complete UTF-8 codepoint boundary.
 // Returns the new length (<= len). If the buffer ends mid-sequence, the
 // incomplete trailing bytes are excluded.
