@@ -128,33 +128,35 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
       const int yOffset = -(lineHeight / 2);
       renderer.drawText(fontId, x + xOffset, charY + yOffset, word.c_str(), true, currentStyle);
     } else if (isFullwidthDigit(cp)) {
-      // Fullwidth digits (０-９): check if next word is also a fullwidth digit for tate-chu-yoko.
-      // Tate-chu-yoko: combine 2 consecutive fullwidth digits into one horizontal number.
-      uint32_t nextCp = 0;
-      if (i + 1 < words.size()) {
+      // Fullwidth digits (０-９): convert to ASCII for tate-chu-yoko rendering.
+      // First, collect all fullwidth digits from this word and possibly the next word.
+      char digits[8];
+      int dLen = 0;
+      // Scan all fullwidth digits within this word
+      const auto* dp = reinterpret_cast<const unsigned char*>(word.c_str());
+      uint32_t dcp;
+      while ((dcp = utf8NextCodepoint(&dp)) && isFullwidthDigit(dcp) && dLen < 6) {
+        digits[dLen++] = static_cast<char>('0' + (dcp - 0xFF10));
+      }
+      // If only one digit in this word, check next word for a pair
+      if (dLen == 1 && i + 1 < words.size()) {
         const auto* np = reinterpret_cast<const unsigned char*>(words[i + 1].c_str());
-        nextCp = utf8NextCodepoint(&np);
+        const uint32_t nextCp = utf8NextCodepoint(&np);
+        if (isFullwidthDigit(nextCp)) {
+          digits[dLen++] = static_cast<char>('0' + (nextCp - 0xFF10));
+          i++;  // skip next word (consumed as part of pair)
+        }
       }
-      if (isFullwidthDigit(nextCp)) {
-        // Convert both fullwidth digits to ASCII and render as horizontal pair
-        char pair[3];
-        pair[0] = static_cast<char>('0' + (cp - 0xFF10));
-        pair[1] = static_cast<char>('0' + (nextCp - 0xFF10));
-        pair[2] = '\0';
-        const int numW = renderer.getTextWidth(fontId, pair, currentStyle);
-        renderer.drawText(fontId, x + (lineHeight - numW) / 2, charY, pair, true, currentStyle);
-        i++;  // skip next word (consumed as part of pair)
-      } else {
-        // Single fullwidth digit: convert to ASCII and draw upright centered
-        char digit[2];
-        digit[0] = static_cast<char>('0' + (cp - 0xFF10));
-        digit[1] = '\0';
-        const int digitW = renderer.getTextWidth(fontId, digit, currentStyle);
-        renderer.drawText(fontId, x + (lineHeight - digitW) / 2, charY, digit, true, currentStyle);
-      }
+      digits[dLen] = '\0';
+      const int numW = renderer.getTextWidth(fontId, digits, currentStyle);
+      renderer.drawText(fontId, x + (lineHeight - numW) / 2, charY, digits, true, currentStyle);
     } else if (isCjkCodepoint(cp)) {
       // Regular CJK character: draw upright
       renderer.drawText(fontId, x, charY, word.c_str(), true, currentStyle);
+    } else if (isShortNumber(word.c_str())) {
+      // ASCII 1-2 digit number: tate-chu-yoko (render horizontally centered in column)
+      const int numW = renderer.getTextWidth(fontId, word.c_str(), currentStyle);
+      renderer.drawText(fontId, x + (lineHeight - numW) / 2, charY, word.c_str(), true, currentStyle);
     } else {
       // Latin in vertical mode: split into individual characters,
       // each drawn upright with fixed centering within the CJK column.

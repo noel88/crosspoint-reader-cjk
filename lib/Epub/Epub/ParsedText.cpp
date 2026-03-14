@@ -468,19 +468,27 @@ std::vector<uint16_t> ParsedText::calculateWordHeights(const GfxRenderer& render
     if (cp == 0) {
       wordHeights.push_back(0);
     } else if (isFullwidthDigit(cp)) {
-      // Fullwidth digit: check if next word is also fullwidth digit (tate-chu-yoko pair)
-      uint32_t nextCp = 0;
-      if (i + 1 < words.size()) {
-        const auto* np = reinterpret_cast<const unsigned char*>(words[i + 1].c_str());
-        nextCp = utf8NextCodepoint(&np);
+      // Fullwidth digit(s): count all fullwidth digits in this word
+      int digitCount = 1;
+      const auto* dp = reinterpret_cast<const unsigned char*>(words[i].c_str());
+      utf8NextCodepoint(&dp);  // skip first (already read as cp)
+      uint32_t dcp;
+      while ((dcp = utf8NextCodepoint(&dp)) && isFullwidthDigit(dcp)) {
+        digitCount++;
       }
-      if (isFullwidthDigit(nextCp)) {
-        // Tate-chu-yoko pair: both digits share one lineHeight cell
-        wordHeights.push_back(static_cast<uint16_t>(lh));
-        wordHeights.push_back(0);  // second digit consumed, zero height
-        i++;  // skip next word
+      if (digitCount == 1 && i + 1 < words.size()) {
+        // Single digit in this word: check next word for a pair
+        const auto* np = reinterpret_cast<const unsigned char*>(words[i + 1].c_str());
+        const uint32_t nextCp = utf8NextCodepoint(&np);
+        if (isFullwidthDigit(nextCp)) {
+          wordHeights.push_back(static_cast<uint16_t>(lh));
+          wordHeights.push_back(0);  // second digit consumed
+          i++;
+        } else {
+          wordHeights.push_back(static_cast<uint16_t>(lh));
+        }
       } else {
-        // Single fullwidth digit: one lineHeight cell
+        // Multi-digit word or single digit with no pair: one lineHeight cell
         wordHeights.push_back(static_cast<uint16_t>(lh));
       }
     } else if (isCjkCodepoint(cp) || isVerticalOpeningBracket(cp) ||
