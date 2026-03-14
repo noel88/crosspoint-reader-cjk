@@ -130,8 +130,12 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
     } else if (isCjkCodepoint(cp)) {
       // Regular CJK character: draw upright
       renderer.drawText(fontId, x, charY, word.c_str(), true, currentStyle);
+    } else if (isShortNumber(word.c_str())) {
+      // Tate-chu-yoko (縦中横): 1-2 digit numbers rendered as horizontal unit.
+      // Use CW rotation to counteract vertical rendering context.
+      renderer.drawTextRotated90CW(fontId, x, charY + lineHeight, word.c_str(), true, currentStyle);
     } else {
-      // Latin/number in vertical mode: split into individual characters,
+      // Latin in vertical mode: split into individual characters,
       // each drawn upright with fixed centering within the CJK column.
       const int xCenter = lineHeight / 4;  // Approximate centering offset
       const auto* p = reinterpret_cast<const unsigned char*>(word.c_str());

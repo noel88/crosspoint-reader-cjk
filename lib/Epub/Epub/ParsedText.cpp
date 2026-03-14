@@ -475,8 +475,11 @@ std::vector<uint16_t> ParsedText::calculateWordHeights(const GfxRenderer& render
         nextWordCp = firstCodepoint(words[i + 1]);
       }
       wordHeights.push_back(measureWordWidth(renderer, fontId, words[i], wordStyles[i], false, nextWordCp));
+    } else if (isShortNumber(words[i].c_str())) {
+      // Tate-chu-yoko: 1-2 digit numbers occupy a single lineHeight cell.
+      wordHeights.push_back(static_cast<uint16_t>(lh));
     } else {
-      // Latin/number: count characters, each occupies one lineHeight cell.
+      // Latin: count characters, each occupies one lineHeight cell.
       // +1 cell for inter-word spacing (space consumed during tokenization).
       int charCount = 0;
       const auto* p = reinterpret_cast<const unsigned char*>(words[i].c_str());
