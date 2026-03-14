@@ -73,6 +73,25 @@ inline bool isVerticalRotatedPunctuation(const uint32_t cp) {
   }
 }
 
+// Mirror a bracket codepoint: swap opening↔closing for CW-rotated vertical rendering.
+// CW rotation reverses bracket orientation, so mirroring the pair before rotation
+// produces the correct vertical form (e.g., 〈→〉 CW = ∧, matching vertical ︿).
+inline uint32_t mirrorBracket(const uint32_t cp) {
+  // CJK brackets: consecutive pairs (even=opening, odd=closing)
+  if (cp >= 0x3008 && cp <= 0x301B) {
+    return cp ^ 1;
+  }
+  switch (cp) {
+    case 0xFF08: return 0xFF09;  // （→）
+    case 0xFF09: return 0xFF08;  // ）→（
+    case 0xFF3B: return 0xFF3D;  // ［→］
+    case 0xFF3D: return 0xFF3B;  // ］→［
+    case 0xFF5B: return 0xFF5D;  // ｛→｝
+    case 0xFF5D: return 0xFF5B;  // ｝→｛
+    default: return cp;
+  }
+}
+
 // Opening brackets that need 90° counter-clockwise rotation in vertical text mode.
 // This ensures they visually appear as opening brackets when rotated.
 inline bool isVerticalOpeningBracket(const uint32_t cp) {

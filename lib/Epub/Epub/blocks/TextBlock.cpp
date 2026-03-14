@@ -79,7 +79,6 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
   // Vertical rendering: x = column X position, wordXpos[i] = Y offset within column
   // CJK characters drawn upright, punctuation rotated/repositioned, Latin rotated 90° CW
   const int lineHeight = renderer.getLineHeight(fontId);
-  const int emHeight = renderer.getFontEmHeight(fontId);
 
   for (size_t i = 0; i < words.size(); i++) {
     const int charY = wordXpos[i] + y;
@@ -90,15 +89,22 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
     const uint32_t cp = utf8NextCodepoint(&ptr);
     if (cp == 0) continue;
 
-    // Determine if this is a bracket (opening or closing) needing CCW rotation
+    // Determine if this is a bracket (opening or closing)
     const bool isBracket = isVerticalOpeningBracket(cp) ||
                            (isVerticalRotatedPunctuation(cp) && !isHorizontalStrokeChar(cp) && cp != 0x2026);
 
     if (isBracket) {
-      // Brackets: rotate 90° CCW for correct vertical text orientation.
-      // CCW maps glyphY to screenX in reverse, so the glyph extends LEFT from cursorX.
-      // Offset by emHeight (ascender - descender) to match the actual glyph height.
-      renderer.drawTextRotated90CCW(fontId, x + emHeight, charY, word.c_str(), true, currentStyle);
+      // Brackets: mirror the pair (opening↔closing) then CW rotate.
+      // CW rotation reverses bracket orientation, so mirroring first
+      // produces the correct vertical form while keeping CW's accurate
+      // X positioning (no offset needed).
+      const uint32_t mirrored = mirrorBracket(cp);
+      char buf[4];
+      buf[0] = static_cast<char>(0xE0 | (mirrored >> 12));
+      buf[1] = static_cast<char>(0x80 | ((mirrored >> 6) & 0x3F));
+      buf[2] = static_cast<char>(0x80 | (mirrored & 0x3F));
+      buf[3] = '\0';
+      renderer.drawTextRotated90CW(fontId, x, charY + lineHeight, buf, true, currentStyle);
     } else if (isVerticalRotatedPunctuation(cp)) {
       // Horizontal strokes (ー〜—…): rotate 90° CW.
       // CW renders glyphs extending ABOVE cursorY, offset by lineHeight.
