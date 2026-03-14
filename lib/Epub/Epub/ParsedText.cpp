@@ -453,11 +453,38 @@ bool ParsedText::hyphenateWordAtIndex(const size_t wordIndex, const int availabl
   return true;
 }
 
-// Vertical layout: each word's "height" in a vertical column is its advance width
-// (CJK characters are square, so advanceX ≈ advanceY)
+// Vertical layout: each word's "height" in a vertical column.
+// CJK characters are square so advanceX works directly.
+// Latin words are split per-character in rendering, so allocate lineHeight per character.
 std::vector<uint16_t> ParsedText::calculateWordHeights(const GfxRenderer& renderer, const int fontId) {
-  // For vertical layout, character "height" = advanceX (square CJK glyphs)
-  return calculateWordWidths(renderer, fontId);
+  std::vector<uint16_t> wordHeights;
+  wordHeights.reserve(words.size());
+  const int lh = renderer.getLineHeight(fontId);
+
+  for (size_t i = 0; i < words.size(); ++i) {
+    const auto* ptr = reinterpret_cast<const unsigned char*>(words[i].c_str());
+    const uint32_t cp = utf8NextCodepoint(&ptr);
+
+    if (cp == 0) {
+      wordHeights.push_back(0);
+    } else if (isCjkCodepoint(cp) || isVerticalOpeningBracket(cp) ||
+               isVerticalRotatedPunctuation(cp) || isVerticalRepositionedPunctuation(cp)) {
+      // CJK / bracket / punctuation: use advance width (square glyphs)
+      uint32_t nextWordCp = 0;
+      if (i + 1 < words.size() && isCjkCodepoint(lastCodepoint(words[i]))) {
+        nextWordCp = firstCodepoint(words[i + 1]);
+      }
+      wordHeights.push_back(measureWordWidth(renderer, fontId, words[i], wordStyles[i], false, nextWordCp));
+    } else {
+      // Latin/number: count characters, each occupies one lineHeight cell
+      int charCount = 0;
+      const auto* p = reinterpret_cast<const unsigned char*>(words[i].c_str());
+      while (*p) { utf8NextCodepoint(&p); charCount++; }
+      wordHeights.push_back(static_cast<uint16_t>(charCount * lh));
+    }
+  }
+
+  return wordHeights;
 }
 
 // Vertical column layout for writing-mode: vertical-rl
