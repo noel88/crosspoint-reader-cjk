@@ -79,6 +79,7 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
   // Vertical rendering: x = column X position, wordXpos[i] = Y offset within column
   // CJK characters drawn upright, punctuation rotated/repositioned, Latin rotated 90° CW
   const int lineHeight = renderer.getLineHeight(fontId);
+  const int emHeight = renderer.getFontEmHeight(fontId);
 
   for (size_t i = 0; i < words.size(); i++) {
     const int charY = wordXpos[i] + y;
@@ -96,8 +97,8 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
     if (isBracket) {
       // Brackets: rotate 90° CCW for correct vertical text orientation.
       // CCW maps glyphY to screenX in reverse, so the glyph extends LEFT from cursorX.
-      // Offset by lineHeight so the glyph occupies the same column as upright characters.
-      renderer.drawTextRotated90CCW(fontId, x + lineHeight, charY, word.c_str(), true, currentStyle);
+      // Offset by emHeight (ascender - descender) to match the actual glyph height.
+      renderer.drawTextRotated90CCW(fontId, x + emHeight, charY, word.c_str(), true, currentStyle);
     } else if (isVerticalRotatedPunctuation(cp)) {
       // Horizontal strokes (ー〜—…): rotate 90° CW.
       // CW renders glyphs extending ABOVE cursorY, offset by lineHeight.
