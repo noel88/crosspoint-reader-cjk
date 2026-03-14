@@ -115,7 +115,7 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
       buf[len] = '\0';
       const int cellHeight = renderer.getTextAdvanceX(fontId, word.c_str(), currentStyle);
       const bool isClosing = !isVerticalOpeningBracket(cp);
-      const int yPad = isClosing ? (lineHeight * 2 / 9) : 0;
+      const int yPad = isClosing ? (lineHeight / 8) : 0;
       const int cursorY = charY + cellHeight + yPad;
       renderer.drawTextRotated90CW(fontId, x, cursorY, buf, true, currentStyle);
     } else if (isVerticalRotatedPunctuation(cp)) {
