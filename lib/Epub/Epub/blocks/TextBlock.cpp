@@ -113,15 +113,11 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
         len = 3;
       }
       buf[len] = '\0';
-      const int cellHeight = renderer.getTextAdvanceX(fontId, word.c_str(), currentStyle);
-      // Closing brackets: shift down slightly to add gap with preceding character.
-      // CW rotation renders upward from cursorY, so increasing Y pushes glyph down.
+      // Use lineHeight as cell height instead of measuring each bracket
       const bool isClosing = !isVerticalOpeningBracket(cp);
       const int yPad = isClosing ? (lineHeight / 5) : 0;
-      const int cursorY = charY + cellHeight + yPad;
-      // Pseudo-bold: draw twice with 1px X offset for thicker bracket strokes
+      const int cursorY = charY + lineHeight + yPad;
       renderer.drawTextRotated90CW(fontId, x, cursorY, buf, true, currentStyle);
-      renderer.drawTextRotated90CW(fontId, x + 1, cursorY, buf, true, currentStyle);
     } else if (isVerticalRotatedPunctuation(cp)) {
       // Horizontal strokes (ー〜—…): rotate 90° CW.
       // CW renders glyphs extending ABOVE cursorY, offset by lineHeight.
@@ -136,7 +132,8 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
       renderer.drawText(fontId, x, charY, word.c_str(), true, currentStyle);
     } else {
       // Latin/number in vertical mode: split into individual characters,
-      // each drawn upright and centered horizontally within the CJK column.
+      // each drawn upright with fixed centering within the CJK column.
+      const int xCenter = lineHeight / 4;  // Approximate centering offset
       const auto* p = reinterpret_cast<const unsigned char*>(word.c_str());
       int yOff = 0;
       while (*p) {
@@ -146,8 +143,7 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
         char ch[5];
         memcpy(ch, start, cLen);
         ch[cLen] = '\0';
-        const int charW = renderer.getTextWidth(fontId, ch, currentStyle);
-        renderer.drawText(fontId, x + (lineHeight - charW) / 2, charY + yOff, ch, true, currentStyle);
+        renderer.drawText(fontId, x + xCenter, charY + yOff, ch, true, currentStyle);
         yOff += lineHeight;
       }
     }
