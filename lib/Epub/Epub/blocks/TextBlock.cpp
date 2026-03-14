@@ -132,8 +132,8 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
       renderer.drawText(fontId, x, charY, word.c_str(), true, currentStyle);
     } else if (isShortNumber(word.c_str())) {
       // Tate-chu-yoko (縦中横): 1-2 digit numbers rendered as horizontal unit.
-      // Use CW rotation to counteract vertical rendering context.
-      renderer.drawTextRotated90CW(fontId, x, charY + lineHeight, word.c_str(), true, currentStyle);
+      // Use CCW rotation to produce upright horizontal text in vertical context.
+      renderer.drawTextRotated90CCW(fontId, x, charY, word.c_str(), true, currentStyle);
     } else {
       // Latin in vertical mode: split into individual characters,
       // each drawn upright with fixed centering within the CJK column.
