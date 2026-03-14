@@ -95,8 +95,9 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
 
     if (isBracket) {
       // Brackets: rotate 90° CCW for correct vertical text orientation.
-      // CCW renders glyphs extending BELOW cursorY, matching top-to-bottom layout.
-      renderer.drawTextRotated90CCW(fontId, x, charY, word.c_str(), true, currentStyle);
+      // CCW maps glyphY to screenX in reverse, so the glyph extends LEFT from cursorX.
+      // Offset by lineHeight so the glyph occupies the same column as upright characters.
+      renderer.drawTextRotated90CCW(fontId, x + lineHeight, charY, word.c_str(), true, currentStyle);
     } else if (isVerticalRotatedPunctuation(cp)) {
       // Horizontal strokes (ー〜—…): rotate 90° CW.
       // CW renders glyphs extending ABOVE cursorY, offset by lineHeight.
