@@ -476,20 +476,21 @@ std::vector<uint16_t> ParsedText::calculateWordHeights(const GfxRenderer& render
       while ((dcp = utf8NextCodepoint(&dp)) && isFullwidthDigit(dcp)) {
         digitCount++;
       }
+      const int digitH = lh + lh / 8;  // trailing gap to prevent touching adjacent chars
       if (digitCount == 1 && i + 1 < words.size()) {
         // Single digit in this word: check next word for a pair
         const auto* np = reinterpret_cast<const unsigned char*>(words[i + 1].c_str());
         const uint32_t nextCp = utf8NextCodepoint(&np);
         if (isFullwidthDigit(nextCp)) {
-          wordHeights.push_back(static_cast<uint16_t>(lh));
+          wordHeights.push_back(static_cast<uint16_t>(digitH));
           wordHeights.push_back(0);  // second digit consumed
           i++;
         } else {
-          wordHeights.push_back(static_cast<uint16_t>(lh));
+          wordHeights.push_back(static_cast<uint16_t>(digitH));
         }
       } else {
         // Multi-digit word or single digit with no pair: one lineHeight cell
-        wordHeights.push_back(static_cast<uint16_t>(lh));
+        wordHeights.push_back(static_cast<uint16_t>(digitH));
       }
     } else if (isCjkCodepoint(cp) || isVerticalOpeningBracket(cp) ||
                isVerticalRotatedPunctuation(cp) || isVerticalRepositionedPunctuation(cp)) {
@@ -500,8 +501,9 @@ std::vector<uint16_t> ParsedText::calculateWordHeights(const GfxRenderer& render
       }
       wordHeights.push_back(measureWordWidth(renderer, fontId, words[i], wordStyles[i], false, nextWordCp));
     } else if (isShortNumber(words[i].c_str())) {
-      // Tate-chu-yoko: 1-2 ASCII digit numbers occupy a single lineHeight cell.
-      wordHeights.push_back(static_cast<uint16_t>(lh));
+      // Tate-chu-yoko: 1-2 ASCII digit numbers occupy a single lineHeight cell
+      // with small trailing gap to prevent touching adjacent characters.
+      wordHeights.push_back(static_cast<uint16_t>(lh + lh / 8));
     } else {
       // Latin: count characters, each occupies one lineHeight cell.
       // +1 cell for inter-word spacing (space consumed during tokenization).
