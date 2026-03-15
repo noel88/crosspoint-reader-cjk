@@ -157,6 +157,15 @@ void TextBlock::renderVertical(const GfxRenderer& renderer, const int fontId, co
       // ASCII 1-2 digit number: tate-chu-yoko (render horizontally centered in column)
       const int numW = renderer.getTextWidth(fontId, word.c_str(), currentStyle);
       renderer.drawText(fontId, x + (lineHeight - numW) / 2, charY, word.c_str(), true, currentStyle);
+    } else if (isLongNumber(word.c_str())) {
+      // ASCII 3+ digit number: each digit upright, centered in column
+      int yOff = 0;
+      for (const char* p = word.c_str(); *p; ++p) {
+        char ch[2] = { *p, '\0' };
+        const int digitW = renderer.getTextWidth(fontId, ch, currentStyle);
+        renderer.drawText(fontId, x + (lineHeight - digitW) / 2, charY + yOff, ch, true, currentStyle);
+        yOff += lineHeight;
+      }
     } else {
       // Latin in vertical mode: split into individual characters,
       // each drawn upright with fixed centering within the CJK column.

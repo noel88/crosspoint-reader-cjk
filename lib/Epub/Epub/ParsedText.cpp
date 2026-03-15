@@ -504,6 +504,10 @@ std::vector<uint16_t> ParsedText::calculateWordHeights(const GfxRenderer& render
       // Tate-chu-yoko: 1-2 ASCII digit numbers occupy a single lineHeight cell
       // with small trailing gap to prevent touching adjacent characters.
       wordHeights.push_back(static_cast<uint16_t>(lh + lh / 8));
+    } else if (isLongNumber(words[i].c_str())) {
+      // 3+ digit number: each digit occupies one lineHeight cell, plus trailing gap.
+      const int digitCount = static_cast<int>(strlen(words[i].c_str()));
+      wordHeights.push_back(static_cast<uint16_t>(digitCount * lh + lh / 8));
     } else {
       // Latin: count characters, each occupies one lineHeight cell.
       // +1 cell for inter-word spacing (space consumed during tokenization).

@@ -158,6 +158,16 @@ inline bool isShortNumber(const char* str) {
   return str[2] == '\0';  // exactly 2 digits
 }
 
+// Returns true if the string contains only ASCII digits (3+ chars).
+// Used for long numbers rendered as individual upright digits in vertical text.
+inline bool isLongNumber(const char* str) {
+  if (!str || !str[0] || !str[1] || !str[2]) return false;  // need at least 3 chars
+  for (const char* p = str; *p; ++p) {
+    if (*p < '0' || *p > '9') return false;
+  }
+  return true;
+}
+
 // Returns true for fullwidth digit codepoints (０-９, U+FF10-U+FF19).
 // These are in the CJK Fullwidth Forms range but need special handling in vertical mode.
 inline bool isFullwidthDigit(const uint32_t cp) {
