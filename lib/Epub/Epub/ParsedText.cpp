@@ -468,29 +468,34 @@ std::vector<uint16_t> ParsedText::calculateWordHeights(const GfxRenderer& render
     if (cp == 0) {
       wordHeights.push_back(0);
     } else if (isFullwidthDigit(cp)) {
-      // Fullwidth digit(s): count all fullwidth digits in this word
-      int digitCount = 1;
-      const auto* dp = reinterpret_cast<const unsigned char*>(words[i].c_str());
-      utf8NextCodepoint(&dp);  // skip first (already read as cp)
-      uint32_t dcp;
-      while ((dcp = utf8NextCodepoint(&dp)) && isFullwidthDigit(dcp)) {
-        digitCount++;
+      // Fullwidth digit: tate-chu-yoko for 1-2 consecutive; 3+ individually.
+      // Check if previous word was also fullwidth digit (continuing long sequence).
+      bool prevIsFullwidth = false;
+      if (i > 0) {
+        const auto* pp = reinterpret_cast<const unsigned char*>(words[i - 1].c_str());
+        prevIsFullwidth = isFullwidthDigit(utf8NextCodepoint(&pp));
       }
-      const int digitH = lh + lh / 8;  // trailing gap to prevent touching adjacent chars
-      if (digitCount == 1 && i + 1 < words.size()) {
-        // Single digit in this word: check next word for a pair
-        const auto* np = reinterpret_cast<const unsigned char*>(words[i + 1].c_str());
-        const uint32_t nextCp = utf8NextCodepoint(&np);
-        if (isFullwidthDigit(nextCp)) {
+      const int digitH = lh;
+      if (prevIsFullwidth) {
+        // Inside a long sequence: individual cell
+        wordHeights.push_back(static_cast<uint16_t>(digitH));
+      } else {
+        // Start of sequence: count consecutive
+        int consecutiveCount = 1;
+        for (size_t j = i + 1; j < words.size(); j++) {
+          const auto* jp = reinterpret_cast<const unsigned char*>(words[j].c_str());
+          if (!isFullwidthDigit(utf8NextCodepoint(&jp))) break;
+          consecutiveCount++;
+        }
+        if (consecutiveCount == 2) {
+          // Exactly 2: tate-chu-yoko pair
           wordHeights.push_back(static_cast<uint16_t>(digitH));
           wordHeights.push_back(0);  // second digit consumed
           i++;
         } else {
+          // Single or 3+: individual cell
           wordHeights.push_back(static_cast<uint16_t>(digitH));
         }
-      } else {
-        // Multi-digit word or single digit with no pair: one lineHeight cell
-        wordHeights.push_back(static_cast<uint16_t>(digitH));
       }
     } else if (isCjkCodepoint(cp) || isVerticalOpeningBracket(cp) ||
                isVerticalRotatedPunctuation(cp) || isVerticalRepositionedPunctuation(cp)) {
@@ -499,10 +504,40 @@ std::vector<uint16_t> ParsedText::calculateWordHeights(const GfxRenderer& render
       if (i + 1 < words.size() && isCjkCodepoint(lastCodepoint(words[i]))) {
         nextWordCp = firstCodepoint(words[i + 1]);
       }
-      wordHeights.push_back(measureWordWidth(renderer, fontId, words[i], wordStyles[i], false, nextWordCp));
+      int h = measureWordWidth(renderer, fontId, words[i], wordStyles[i], false, nextWordCp);
+      // Opening corner brackets (「『): add trailing gap for spacing with following text.
+      if (cp == 0x300C || cp == 0x300E) {
+        h += lh / 4;
+      }
+      // Closing corner brackets (」』): rendered upright. Ensure cell height
+      // is at least one lineHeight so glyph doesn't overflow into next cell.
+      if (cp == 0x300D || cp == 0x300F) {
+        if (h < lh) h = lh;
+      }
+      // Non-corner closing brackets (CW-rotated): glyph bottom extends to
+      // cursorY - glyph.left, which can overlap with the next character's
+      // top-bearing zone. Add trailing gap to prevent overlap.
+      if (!isCornerStyleBracket(cp) &&
+          !isVerticalOpeningBracket(cp) && isVerticalRotatedPunctuation(cp) &&
+          !isHorizontalStrokeChar(cp) && cp != 0x2026) {
+        h += lh;
+      }
+
+      // Add trailing gap when followed by non-CJK content (Latin, numbers)
+      // to prevent touching at CJK→Latin/number transitions.
+      if (i + 1 < words.size()) {
+        const auto* np = reinterpret_cast<const unsigned char*>(words[i + 1].c_str());
+        const uint32_t ncp = utf8NextCodepoint(&np);
+        if (ncp && !isCjkCodepoint(ncp) && !isVerticalOpeningBracket(ncp) &&
+            !isVerticalRotatedPunctuation(ncp) && !isVerticalRepositionedPunctuation(ncp) &&
+            !isFullwidthDigit(ncp)) {
+          h += lh / 3;
+        }
+      }
+      wordHeights.push_back(static_cast<uint16_t>(h));
     } else if (isShortNumber(words[i].c_str())) {
       // Tate-chu-yoko: 1-2 ASCII digit numbers occupy a single lineHeight cell
-      // with small trailing gap to prevent touching adjacent characters.
+      // with leading + trailing gap to prevent touching adjacent characters.
       wordHeights.push_back(static_cast<uint16_t>(lh + lh / 8));
     } else if (isLongNumber(words[i].c_str())) {
       // 3+ digit number: each digit occupies one lineHeight cell, plus trailing gap.

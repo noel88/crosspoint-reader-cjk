@@ -835,7 +835,7 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
         const uint32_t cp = (static_cast<uint32_t>(uc & 0x0F) << 12) |
                             (static_cast<uint32_t>(static_cast<unsigned char>(s[i + 1]) & 0x3F) << 6) |
                             static_cast<uint32_t>(static_cast<unsigned char>(s[i + 2]) & 0x3F);
-        if (isCjkCodepoint(cp)) {
+        if (isCjkCodepoint(cp) || isVerticalRotatedPunctuation(cp) || isVerticalRepositionedPunctuation(cp)) {
           // Flush any Latin/other text accumulated before this CJK character
           if (self->partWordBufferIndex > 0) {
             self->flushPartWordBuffer();
