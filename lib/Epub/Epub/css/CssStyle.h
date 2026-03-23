@@ -5,7 +5,6 @@
 // Matches order of PARAGRAPH_ALIGNMENT in CrossPointSettings
 enum class CssTextAlign : uint8_t { Justify = 0, Left = 1, Center = 2, Right = 3, None = 4 };
 enum class CssUnit : uint8_t { Pixels = 0, Em = 1, Rem = 2, Points = 3, Percent = 4 };
-enum class CssWritingMode : uint8_t { HorizontalTb = 0, VerticalRl = 1, VerticalLr = 2 };
 
 // Represents a CSS length value with its unit, allowing deferred resolution to pixels
 struct CssLength {
@@ -55,6 +54,10 @@ enum class CssFontWeight : uint8_t { Normal = 0, Bold = 1 };
 // Text decoration options
 enum class CssTextDecoration : uint8_t { None = 0, Underline = 1 };
 
+// Display options - only None and Block are relevant for e-ink rendering
+enum class CssDisplay : uint8_t { Block = 0, None = 1 };
+enum class CssWritingMode : uint8_t { HorizontalTb = 0, VerticalRl = 1, VerticalLr = 2 };
+
 // Bitmask for tracking which properties have been explicitly set
 struct CssPropertyFlags {
   uint16_t textAlign : 1;
@@ -72,6 +75,7 @@ struct CssPropertyFlags {
   uint16_t paddingRight : 1;
   uint16_t imageHeight : 1;
   uint16_t imageWidth : 1;
+  uint16_t display : 1;
   uint16_t writingMode : 1;
 
   CssPropertyFlags()
@@ -90,19 +94,20 @@ struct CssPropertyFlags {
         paddingRight(0),
         imageHeight(0),
         imageWidth(0),
+        display(0),
         writingMode(0) {}
 
   [[nodiscard]] bool anySet() const {
     return textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop || marginBottom ||
            marginLeft || marginRight || paddingTop || paddingBottom || paddingLeft || paddingRight || imageHeight ||
-           imageWidth || writingMode;
+           imageWidth || display || writingMode;
   }
 
   void clearAll() {
     textAlign = fontStyle = fontWeight = textDecoration = textIndent = 0;
     marginTop = marginBottom = marginLeft = marginRight = 0;
     paddingTop = paddingBottom = paddingLeft = paddingRight = 0;
-    imageHeight = imageWidth = writingMode = 0;
+    imageHeight = imageWidth = display = writingMode = 0;
   }
 };
 
@@ -126,6 +131,7 @@ struct CssStyle {
   CssLength paddingRight;   // Padding right
   CssLength imageHeight;    // Height for img (e.g. 2em) – width derived from aspect ratio when only height set
   CssLength imageWidth;     // Width for img when both or only width set
+  CssDisplay display = CssDisplay::Block;  // display property (Block or None)
   CssWritingMode writingMode = CssWritingMode::HorizontalTb;
 
   CssPropertyFlags defined;  // Tracks which properties were explicitly set
@@ -193,6 +199,10 @@ struct CssStyle {
       imageWidth = base.imageWidth;
       defined.imageWidth = 1;
     }
+    if (base.hasDisplay()) {
+      display = base.display;
+      defined.display = 1;
+    }
     if (base.hasWritingMode()) {
       writingMode = base.writingMode;
       defined.writingMode = 1;
@@ -214,6 +224,7 @@ struct CssStyle {
   [[nodiscard]] bool hasPaddingRight() const { return defined.paddingRight; }
   [[nodiscard]] bool hasImageHeight() const { return defined.imageHeight; }
   [[nodiscard]] bool hasImageWidth() const { return defined.imageWidth; }
+  [[nodiscard]] bool hasDisplay() const { return defined.display; }
   [[nodiscard]] bool hasWritingMode() const { return defined.writingMode; }
 
   void reset() {
@@ -225,6 +236,7 @@ struct CssStyle {
     marginTop = marginBottom = marginLeft = marginRight = CssLength{};
     paddingTop = paddingBottom = paddingLeft = paddingRight = CssLength{};
     imageHeight = imageWidth = CssLength{};
+    display = CssDisplay::Block;
     writingMode = CssWritingMode::HorizontalTb;
     defined.clearAll();
   }
