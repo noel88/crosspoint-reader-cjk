@@ -260,6 +260,13 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     return;
   }
 
+  // Detect writing-mode from html/body tags or inline style
+  if (cssStyle.hasWritingMode() && (strcmp(name, "html") == 0 || strcmp(name, "body") == 0)) {
+    self->sectionWritingMode = cssStyle.writingMode;
+    LOG_DBG("EHP", "Detected writing-mode: %s",
+            cssStyle.writingMode == CssWritingMode::VerticalRl ? "vertical-rl" : "horizontal-tb");
+  }
+
   // Special handling for tables/cells: flatten into per-cell paragraphs with a prefixed header.
   if (strcmp(name, "table") == 0) {
     // skip nested tables
@@ -614,29 +621,10 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
     }
   }
 
-  // Compute CSS style for this element
-  CssStyle cssStyle;
-  if (self->cssParser) {
-    // Get combined tag + class styles
-    cssStyle = self->cssParser->resolveStyle(name, classAttr);
-    // Merge inline style (highest priority)
-    if (!styleAttr.empty()) {
-      CssStyle inlineStyle = CssParser::parseInlineStyle(styleAttr);
-      cssStyle.applyOver(inlineStyle);
-    }
-  }
-
   // Detect writing-mode from html/body tags or inline style
   if (cssStyle.hasWritingMode() && (strcmp(name, "html") == 0 || strcmp(name, "body") == 0)) {
     self->sectionWritingMode = cssStyle.writingMode;
     LOG_DBG("EHP", "Detected writing-mode: %s", cssStyle.writingMode == CssWritingMode::VerticalRl ? "vertical-rl" : "horizontal-tb");
-  }
-
-  // Skip elements with display:none before all fast paths (tables, links, etc.).
-  if (cssStyle.hasDisplay() && cssStyle.display == CssDisplay::None) {
-    self->skipUntilDepth = self->depth;
-    self->depth += 1;
-    return;
   }
 
   const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
