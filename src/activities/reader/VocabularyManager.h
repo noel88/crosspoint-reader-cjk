@@ -25,11 +25,20 @@ class VocabularyManager {
     char buf[512];
     int len = snprintf(buf, sizeof(buf), "%s\t%s\t%s\n", word.c_str(), definition.c_str(), bookTitle.c_str());
 
-    if (len > 0 && len < static_cast<int>(sizeof(buf))) {
-      file.write(reinterpret_cast<const uint8_t*>(buf), len);
+    if (len <= 0 || len >= static_cast<int>(sizeof(buf))) {
+      file.close();
+      LOG_ERR("VOC", "Entry too long to save: %s", word.c_str());
+      return false;
     }
 
+    const int written = file.write(reinterpret_cast<const uint8_t*>(buf), len);
     file.close();
+
+    if (written != len) {
+      LOG_ERR("VOC", "Write failed: wrote %d/%d bytes", written, len);
+      return false;
+    }
+
     LOG_DBG("VOC", "Saved: %s", word.c_str());
     return true;
   }

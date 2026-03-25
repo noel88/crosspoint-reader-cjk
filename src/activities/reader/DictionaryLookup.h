@@ -47,7 +47,7 @@ class DictionaryLookup {
       }
 
       // Read the word portion (up to tab)
-      char buf[128];
+      char buf[256];
       int len = readUntilTab(file, buf, sizeof(buf));
       if (len <= 0) {
         // Empty line or read error
@@ -66,7 +66,9 @@ class DictionaryLookup {
       } else {
         // Skip to end of this line for the next iteration
         skipToNextLine(file);
-        lo = file.position();
+        uint32_t newLo = file.position();
+        // Guard: ensure lo always advances past mid to prevent infinite loops
+        lo = (newLo > mid) ? newLo : mid + 1;
       }
     }
 
@@ -79,6 +81,14 @@ class DictionaryLookup {
     int c;
     while ((c = file.read()) >= 0) {
       if (c == '\n') return;
+      if (c == '\r') {
+        // Consume trailing \n if present (CRLF)
+        int next = file.read();
+        if (next >= 0 && next != '\n') {
+          file.seek(file.position() - 1);
+        }
+        return;
+      }
     }
   }
 

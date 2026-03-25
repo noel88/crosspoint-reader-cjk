@@ -4,6 +4,9 @@
 #include <I18n.h>
 #include <Logging.h>
 
+#include <algorithm>
+#include <cstring>
+
 #include "MappedInputManager.h"
 #include "VocabularyManager.h"
 #include "components/UITheme.h"
@@ -13,14 +16,17 @@ VocabularyViewActivity::VocabularyViewActivity(GfxRenderer& renderer, MappedInpu
     : Activity("VocabularyView", renderer, mappedInput) {}
 
 void VocabularyViewActivity::loadEntries() {
+  entries.clear();
+
   FsFile file;
   if (!Storage.openFileForRead("VOC", VocabularyManager::VOCAB_PATH, file)) {
     LOG_DBG("VOC", "No vocabulary file found");
     return;
   }
 
+  static constexpr int MAX_ENTRIES = 200;
   entries.reserve(64);
-  while (file.available()) {
+  while (file.available() && static_cast<int>(entries.size()) < MAX_ENTRIES) {
     // Read one line character by character
     char line[512];
     int len = 0;
@@ -188,41 +194,69 @@ void VocabularyViewActivity::renderBack() {
 
 void VocabularyViewActivity::wrapText(int fontId, const char* text, int x, int y, int maxWidth, int lineHeight,
                                       int maxLines) const {
-  std::string remaining(text);
+  const char* ptr = text;
   int lineY = y;
   int linesDrawn = 0;
+  char buf[256];
 
-  while (!remaining.empty() && linesDrawn < maxLines) {
-    // Find how many chars fit on this line
-    size_t fitLen = remaining.size();
-    while (fitLen > 0 && renderer.getTextWidth(fontId, remaining.substr(0, fitLen).c_str()) > maxWidth) {
-      // Try to break at a separator: semicolon, space, or CJK char boundary
-      size_t breakPos = fitLen;
+  while (*ptr && linesDrawn < maxLines) {
+    const size_t totalLen = strlen(ptr);
+    size_t fitLen = std::min(totalLen, sizeof(buf) - 1);
+
+    // Copy into stack buffer and measure
+    memcpy(buf, ptr, fitLen);
+    buf[fitLen] = '\0';
+
+    while (fitLen > 1 && renderer.getTextWidth(fontId, buf) > maxWidth) {
       // Search backward for a good break point
+      size_t breakPos = 0;
       for (size_t i = fitLen; i > 0; i--) {
-        unsigned char c = remaining[i - 1];
-        if (c == ';' || c == ' ' || c == '\xE3' || (c >= 0x80 && (remaining[i - 1] & 0xC0) != 0x80)) {
-          breakPos = i;
+        const auto c = static_cast<uint8_t>(ptr[i - 1]);
+        if (c == ';' || c == ' ') {
+          breakPos = i;  // break after separator
+          break;
+        }
+        // UTF-8 multi-byte lead byte (0xC0+): break before this character
+        if (c >= 0xC0) {
+          breakPos = i - 1;
           break;
         }
       }
-      fitLen = (breakPos < fitLen) ? breakPos : fitLen - 1;
+      fitLen = (breakPos > 0) ? breakPos : fitLen - 1;
+
+      // Don't end mid-UTF-8 sequence: move back to character boundary
+      while (fitLen > 0 && (static_cast<uint8_t>(ptr[fitLen]) & 0xC0) == 0x80) {
+        fitLen--;
+      }
+
+      memcpy(buf, ptr, fitLen);
+      buf[fitLen] = '\0';
     }
 
-    if (fitLen == 0) fitLen = 1;  // At least one character
+    if (fitLen == 0) {
+      // At least one full UTF-8 character
+      fitLen = 1;
+      while (fitLen < totalLen && (static_cast<uint8_t>(ptr[fitLen]) & 0xC0) == 0x80) {
+        fitLen++;
+      }
+      const size_t copyLen = std::min(fitLen, sizeof(buf) - 1);
+      memcpy(buf, ptr, copyLen);
+      buf[copyLen] = '\0';
+    }
 
-    std::string line = remaining.substr(0, fitLen);
-    renderer.drawText(fontId, x, lineY, line.c_str());
+    renderer.drawText(fontId, x, lineY, buf);
     lineY += lineHeight;
     linesDrawn++;
 
-    remaining = remaining.substr(fitLen);
-    // Skip leading spaces on new line
-    while (!remaining.empty() && remaining[0] == ' ') remaining = remaining.substr(1);
+    ptr += fitLen;
+    while (*ptr == ' ') ptr++;
   }
 
-  // Indicate truncation
-  if (!remaining.empty() && linesDrawn >= maxLines) {
-    renderer.drawText(fontId, x, lineY - lineHeight, "...");
+  // Truncation indicator: ellipsis at right edge of last line
+  if (*ptr && linesDrawn >= maxLines) {
+    const int ellipsisW = renderer.getTextWidth(fontId, "...");
+    const int lastLineY = lineY - lineHeight;
+    renderer.fillRect(x + maxWidth - ellipsisW, lastLineY, ellipsisW, lineHeight, false);
+    renderer.drawText(fontId, x + maxWidth - ellipsisW, lastLineY, "...");
   }
 }

@@ -951,12 +951,21 @@ void EpubReaderActivity::enterWordSelection() {
   wsMarginLeft += SETTINGS.screenMargin;
   wsMarginRight += SETTINGS.screenMargin;
   const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
-  wsMarginBottom += std::max(SETTINGS.screenMargin, statusBarHeight);
 
-  auto p = section->loadPageFromSectionFile();
-  if (!p) return;
+  // Match auto-page-turn margin logic from render()
+  if (automaticPageTurnActive &&
+      (statusBarHeight == 0 || statusBarHeight == UITheme::getInstance().getProgressBarHeight())) {
+    wsMarginBottom +=
+        std::max(SETTINGS.screenMargin,
+                 static_cast<uint8_t>(statusBarHeight + UITheme::getInstance().getMetrics().statusBarVerticalMargin));
+  } else {
+    wsMarginBottom += std::max(SETTINGS.screenMargin, statusBarHeight);
+  }
 
-  wordEntries = buildWordList(*p, renderer, SETTINGS.getReaderFontId(), wsMarginLeft, wsMarginTop);
+  wsPage = section->loadPageFromSectionFile();
+  if (!wsPage) return;
+
+  wordEntries = buildWordList(*wsPage, renderer, SETTINGS.getReaderFontId(), wsMarginLeft, wsMarginTop);
 
   if (wordEntries.empty()) {
     LOG_DBG("ERS", "No selectable words on this page");
@@ -974,18 +983,20 @@ void EpubReaderActivity::exitWordSelection() {
   wordSelectionActive = false;
   wordEntries.clear();
   wordEntries.shrink_to_fit();
+  wsPage.reset();
   requestUpdate();  // Re-render page without highlight
 }
 
 void EpubReaderActivity::renderWordSelection() {
-  if (!section || wordEntries.empty()) return;
+  if (!section || wordEntries.empty() || !wsPage) return;
 
-  // Load and render the page content
-  auto p = section->loadPageFromSectionFile();
-  if (!p) return;
+  // Bounds check
+  if (selectedWordIndex < 0 || selectedWordIndex >= static_cast<int>(wordEntries.size())) {
+    selectedWordIndex = 0;
+  }
 
   renderer.clearScreen();
-  p->render(renderer, SETTINGS.getReaderFontId(), wsMarginLeft, wsMarginTop);
+  wsPage->render(renderer, SETTINGS.getReaderFontId(), wsMarginLeft, wsMarginTop);
   renderStatusBar();
 
   // Draw highlight on selected word
@@ -1008,6 +1019,7 @@ void EpubReaderActivity::renderWordSelection() {
 
 void EpubReaderActivity::addSelectedWord() {
   if (wordEntries.empty()) return;
+  if (selectedWordIndex < 0 || selectedWordIndex >= static_cast<int>(wordEntries.size())) return;
 
   const auto& w = wordEntries[selectedWordIndex];
 
@@ -1016,7 +1028,7 @@ void EpubReaderActivity::addSelectedWord() {
   std::string definition = DictionaryLookup::lookup(DICT_PATH, w.text);
 
   // Save to vocabulary
-  const std::string bookTitle = epub ? epub->getTitle() : "Unknown";
+  const std::string bookTitle = epub ? epub->getTitle() : std::string(tr(STR_UNKNOWN_BOOK));
   VocabularyManager::addEntry(w.text, definition, bookTitle);
 
   // Brief visual feedback: show "Added!" toast

@@ -54,7 +54,7 @@ inline std::vector<WordEntry> buildWordList(const Page& page, const GfxRenderer&
         entry.screenX = el->xPos + xOffset;
         entry.screenY = xpos[i] + el->yPos + yOffset;
         entry.width = lineHeight;
-        entry.height = lineHeight;
+        entry.height = renderer.getTextWidth(fontId, words[i].c_str(), styles[i]);
       } else {
         entry.screenX = xpos[i] + el->xPos + xOffset;
         entry.screenY = el->yPos + yOffset;

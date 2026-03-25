@@ -1,6 +1,7 @@
 #pragma once
 #include <Epub.h>
 #include <Epub/FootnoteEntry.h>
+#include <Epub/Page.h>
 #include <Epub/Section.h>
 
 #include "EpubReaderMenuActivity.h"
@@ -47,6 +48,7 @@ class EpubReaderActivity final : public Activity {
   bool wordSelectionActive = false;
   int selectedWordIndex = 0;
   std::vector<WordEntry> wordEntries;
+  std::unique_ptr<Page> wsPage;  // Cached page during word selection (avoids SD re-reads)
   int wsMarginTop = 0, wsMarginRight = 0, wsMarginBottom = 0, wsMarginLeft = 0;
   void enterWordSelection();
   void exitWordSelection();
