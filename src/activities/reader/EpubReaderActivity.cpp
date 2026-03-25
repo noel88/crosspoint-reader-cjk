@@ -27,6 +27,7 @@
 #include "util/ScreenshotUtil.h"
 #include "DictionaryLookup.h"
 #include "VocabularyManager.h"
+#include "VocabularyViewActivity.h"
 
 namespace {
 // pagesPerRefresh now comes from SETTINGS.getRefreshFrequency()
@@ -421,6 +422,11 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     }
     case EpubReaderMenuActivity::MenuAction::WORD_LOOKUP: {
       enterWordSelection();
+      return;
+    }
+    case EpubReaderMenuActivity::MenuAction::VOCABULARY_LIST: {
+      startActivityForResult(std::make_unique<VocabularyViewActivity>(renderer, mappedInput),
+                             [this](const ActivityResult&) { requestUpdate(); });
       return;
     }
     case EpubReaderMenuActivity::MenuAction::SYNC: {
