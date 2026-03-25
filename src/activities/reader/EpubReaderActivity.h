@@ -4,6 +4,7 @@
 #include <Epub/Section.h>
 
 #include "EpubReaderMenuActivity.h"
+#include "WordSelector.h"
 #include "activities/Activity.h"
 
 class EpubReaderActivity final : public Activity {
@@ -41,6 +42,16 @@ class EpubReaderActivity final : public Activity {
   void renderContents(std::unique_ptr<Page> page, int orientedMarginTop, int orientedMarginRight,
                       int orientedMarginBottom, int orientedMarginLeft);
   void renderStatusBar() const;
+
+  // Word selection mode
+  bool wordSelectionActive = false;
+  int selectedWordIndex = 0;
+  std::vector<WordEntry> wordEntries;
+  int wsMarginTop = 0, wsMarginRight = 0, wsMarginBottom = 0, wsMarginLeft = 0;
+  void enterWordSelection();
+  void exitWordSelection();
+  void renderWordSelection();
+  void addSelectedWord();
   void silentIndexNextChapterIfNeeded(uint16_t viewportWidth, uint16_t viewportHeight);
   void saveProgress(int spineIndex, int currentPage, int pageCount);
   // Jump to a percentage of the book (0-100), mapping it to spine and page.

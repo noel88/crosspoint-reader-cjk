@@ -25,6 +25,8 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "util/ScreenshotUtil.h"
+#include "DictionaryLookup.h"
+#include "VocabularyManager.h"
 
 namespace {
 // pagesPerRefresh now comes from SETTINGS.getRefreshFrequency()
@@ -121,6 +123,28 @@ void EpubReaderActivity::loop() {
   if (!epub) {
     // Should never happen
     finish();
+    return;
+  }
+
+  // Word selection mode: override normal input handling
+  if (wordSelectionActive) {
+    if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
+      exitWordSelection();
+      return;
+    }
+    if (mappedInput.wasReleased(MappedInputManager::Button::Confirm)) {
+      addSelectedWord();
+      return;
+    }
+    auto [wsPrev, wsNext] = ReaderUtils::detectPageTurn(mappedInput);
+    if (wsNext && !wordEntries.empty()) {
+      selectedWordIndex = (selectedWordIndex + 1) % static_cast<int>(wordEntries.size());
+      renderWordSelection();
+    } else if (wsPrev && !wordEntries.empty()) {
+      selectedWordIndex =
+          (selectedWordIndex - 1 + static_cast<int>(wordEntries.size())) % static_cast<int>(wordEntries.size());
+      renderWordSelection();
+    }
     return;
   }
 
@@ -394,6 +418,10 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
       }
       requestUpdate();
       break;
+    }
+    case EpubReaderMenuActivity::MenuAction::WORD_LOOKUP: {
+      enterWordSelection();
+      return;
     }
     case EpubReaderMenuActivity::MenuAction::SYNC: {
       if (KOREADER_STORE.hasCredentials()) {
@@ -904,4 +932,98 @@ void EpubReaderActivity::restoreSavedPosition() {
     section.reset();
   }
   requestUpdate();
+}
+
+// ── Word Selection Mode ─────────────────────────────────────────────────────
+
+void EpubReaderActivity::enterWordSelection() {
+  if (!section || section->pageCount == 0) return;
+
+  // Calculate margins (same logic as render())
+  renderer.getOrientedViewableTRBL(&wsMarginTop, &wsMarginRight, &wsMarginBottom, &wsMarginLeft);
+  wsMarginTop += SETTINGS.screenMargin;
+  wsMarginLeft += SETTINGS.screenMargin;
+  wsMarginRight += SETTINGS.screenMargin;
+  const uint8_t statusBarHeight = UITheme::getInstance().getStatusBarHeight();
+  wsMarginBottom += std::max(SETTINGS.screenMargin, statusBarHeight);
+
+  auto p = section->loadPageFromSectionFile();
+  if (!p) return;
+
+  wordEntries = buildWordList(*p, renderer, SETTINGS.getReaderFontId(), wsMarginLeft, wsMarginTop);
+
+  if (wordEntries.empty()) {
+    LOG_DBG("ERS", "No selectable words on this page");
+    return;
+  }
+
+  wordSelectionActive = true;
+  selectedWordIndex = 0;
+  LOG_DBG("ERS", "Word selection: %d words", (int)wordEntries.size());
+
+  renderWordSelection();
+}
+
+void EpubReaderActivity::exitWordSelection() {
+  wordSelectionActive = false;
+  wordEntries.clear();
+  wordEntries.shrink_to_fit();
+  requestUpdate();  // Re-render page without highlight
+}
+
+void EpubReaderActivity::renderWordSelection() {
+  if (!section || wordEntries.empty()) return;
+
+  // Load and render the page content
+  auto p = section->loadPageFromSectionFile();
+  if (!p) return;
+
+  renderer.clearScreen();
+  p->render(renderer, SETTINGS.getReaderFontId(), wsMarginLeft, wsMarginTop);
+  renderStatusBar();
+
+  // Draw highlight on selected word
+  const auto& w = wordEntries[selectedWordIndex];
+  constexpr int pad = 2;
+  renderer.fillRect(w.screenX - pad, w.screenY - pad, w.width + pad * 2, w.height + pad * 2, true);
+  renderer.drawText(SETTINGS.getReaderFontId(), w.screenX, w.screenY, w.text.c_str(), false, w.style);
+
+  // Show word index indicator at bottom
+  char info[32];
+  snprintf(info, sizeof(info), "%d/%d", selectedWordIndex + 1, (int)wordEntries.size());
+  const int infoWidth = renderer.getTextWidth(UI_10_FONT_ID, info);
+  const int infoX = renderer.getScreenWidth() - infoWidth - 10;
+  const int infoY = renderer.getScreenHeight() - 20;
+  renderer.fillRect(infoX - 4, infoY - 2, infoWidth + 8, 18, false);
+  renderer.drawText(UI_10_FONT_ID, infoX, infoY, info, true);
+
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+}
+
+void EpubReaderActivity::addSelectedWord() {
+  if (wordEntries.empty()) return;
+
+  const auto& w = wordEntries[selectedWordIndex];
+
+  // Dictionary lookup
+  static constexpr const char* DICT_PATH = "/dictionaries/dict.tsv";
+  std::string definition = DictionaryLookup::lookup(DICT_PATH, w.text);
+
+  // Save to vocabulary
+  const std::string bookTitle = epub ? epub->getTitle() : "Unknown";
+  VocabularyManager::addEntry(w.text, definition, bookTitle);
+
+  // Brief visual feedback: show "Added!" toast
+  const char* addedMsg = tr(STR_WORD_ADDED);
+  const int msgWidth = renderer.getTextWidth(UI_10_FONT_ID, addedMsg, EpdFontFamily::BOLD);
+  const int toastX = (renderer.getScreenWidth() - msgWidth) / 2 - 10;
+  const int toastY = renderer.getScreenHeight() / 2 - 15;
+  renderer.fillRect(toastX, toastY, msgWidth + 20, 30, false);
+  renderer.drawRect(toastX, toastY, msgWidth + 20, 30, true);
+  renderer.drawText(UI_10_FONT_ID, toastX + 10, toastY + 5, addedMsg, true, EpdFontFamily::BOLD);
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+
+  // Wait briefly then re-render word selection
+  vTaskDelay(pdMS_TO_TICKS(800));
+  renderWordSelection();
 }
