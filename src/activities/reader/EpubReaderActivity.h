@@ -44,9 +44,10 @@ class EpubReaderActivity final : public Activity {
                       int orientedMarginBottom, int orientedMarginLeft);
   void renderStatusBar() const;
 
-  // Word selection mode
+  // Word selection mode (range selection: side buttons move cursor, Left/Right extend range)
   bool wordSelectionActive = false;
-  int selectedWordIndex = 0;
+  int selectionStart = 0;
+  int selectionEnd = 0;
   std::vector<WordEntry> wordEntries;
   std::unique_ptr<Page> wsPage;  // Cached page during word selection (avoids SD re-reads)
   int wsMarginTop = 0, wsMarginRight = 0, wsMarginBottom = 0, wsMarginLeft = 0;

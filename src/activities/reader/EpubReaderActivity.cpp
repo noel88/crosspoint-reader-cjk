@@ -128,6 +128,7 @@ void EpubReaderActivity::loop() {
   }
 
   // Word selection mode: override normal input handling
+  // Side buttons: move cursor (single word). Left/Right: extend range selection.
   if (wordSelectionActive) {
     if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
       exitWordSelection();
@@ -137,14 +138,32 @@ void EpubReaderActivity::loop() {
       addSelectedWord();
       return;
     }
+    const int lastIdx = static_cast<int>(wordEntries.size()) - 1;
+    // Side buttons: move cursor, reset to single word selection
     auto [wsPrev, wsNext] = ReaderUtils::detectPageTurn(mappedInput);
     if (wsNext && !wordEntries.empty()) {
-      selectedWordIndex = (selectedWordIndex + 1) % static_cast<int>(wordEntries.size());
+      selectionEnd = (selectionEnd + 1) % static_cast<int>(wordEntries.size());
+      selectionStart = selectionEnd;
       renderWordSelection();
     } else if (wsPrev && !wordEntries.empty()) {
-      selectedWordIndex =
-          (selectedWordIndex - 1 + static_cast<int>(wordEntries.size())) % static_cast<int>(wordEntries.size());
+      selectionStart =
+          (selectionStart - 1 + static_cast<int>(wordEntries.size())) % static_cast<int>(wordEntries.size());
+      selectionEnd = selectionStart;
       renderWordSelection();
+    }
+    // Left: extend selection start backward
+    if (mappedInput.wasReleased(MappedInputManager::Button::Left)) {
+      if (selectionStart > 0) {
+        selectionStart--;
+        renderWordSelection();
+      }
+    }
+    // Right: extend selection end forward
+    if (mappedInput.wasReleased(MappedInputManager::Button::Right)) {
+      if (selectionEnd < lastIdx) {
+        selectionEnd++;
+        renderWordSelection();
+      }
     }
     return;
   }
@@ -973,7 +992,8 @@ void EpubReaderActivity::enterWordSelection() {
   }
 
   wordSelectionActive = true;
-  selectedWordIndex = 0;
+  selectionStart = 0;
+  selectionEnd = 0;
   LOG_DBG("ERS", "Word selection: %d words", (int)wordEntries.size());
 
   renderWordSelection();
@@ -990,24 +1010,31 @@ void EpubReaderActivity::exitWordSelection() {
 void EpubReaderActivity::renderWordSelection() {
   if (!section || wordEntries.empty() || !wsPage) return;
 
+  const int maxIdx = static_cast<int>(wordEntries.size()) - 1;
   // Bounds check
-  if (selectedWordIndex < 0 || selectedWordIndex >= static_cast<int>(wordEntries.size())) {
-    selectedWordIndex = 0;
-  }
+  if (selectionStart < 0) selectionStart = 0;
+  if (selectionEnd > maxIdx) selectionEnd = maxIdx;
+  if (selectionStart > selectionEnd) selectionStart = selectionEnd;
 
   renderer.clearScreen();
   wsPage->render(renderer, SETTINGS.getReaderFontId(), wsMarginLeft, wsMarginTop);
   renderStatusBar();
 
-  // Draw highlight on selected word
-  const auto& w = wordEntries[selectedWordIndex];
+  // Draw highlight on all selected words
   constexpr int pad = 2;
-  renderer.fillRect(w.screenX - pad, w.screenY - pad, w.width + pad * 2, w.height + pad * 2, true);
-  renderer.drawText(SETTINGS.getReaderFontId(), w.screenX, w.screenY, w.text.c_str(), false, w.style);
+  for (int i = selectionStart; i <= selectionEnd; i++) {
+    const auto& w = wordEntries[i];
+    renderer.fillRect(w.screenX - pad, w.screenY - pad, w.width + pad * 2, w.height + pad * 2, true);
+    renderer.drawText(SETTINGS.getReaderFontId(), w.screenX, w.screenY, w.text.c_str(), false, w.style);
+  }
 
   // Show word index indicator at bottom
   char info[32];
-  snprintf(info, sizeof(info), "%d/%d", selectedWordIndex + 1, (int)wordEntries.size());
+  if (selectionStart == selectionEnd) {
+    snprintf(info, sizeof(info), "%d/%d", selectionStart + 1, (int)wordEntries.size());
+  } else {
+    snprintf(info, sizeof(info), "%d-%d/%d", selectionStart + 1, selectionEnd + 1, (int)wordEntries.size());
+  }
   const int infoWidth = renderer.getTextWidth(UI_10_FONT_ID, info);
   const int infoX = renderer.getScreenWidth() - infoWidth - 10;
   const int infoY = renderer.getScreenHeight() - 20;
@@ -1019,17 +1046,22 @@ void EpubReaderActivity::renderWordSelection() {
 
 void EpubReaderActivity::addSelectedWord() {
   if (wordEntries.empty()) return;
-  if (selectedWordIndex < 0 || selectedWordIndex >= static_cast<int>(wordEntries.size())) return;
+  const int maxIdx = static_cast<int>(wordEntries.size()) - 1;
+  if (selectionStart < 0 || selectionEnd > maxIdx || selectionStart > selectionEnd) return;
 
-  const auto& w = wordEntries[selectedWordIndex];
+  // Concatenate selected words
+  std::string selectedText;
+  for (int i = selectionStart; i <= selectionEnd; i++) {
+    selectedText += wordEntries[i].text;
+  }
 
   // Dictionary lookup
   static constexpr const char* DICT_PATH = "/dictionaries/dict.tsv";
-  std::string definition = DictionaryLookup::lookup(DICT_PATH, w.text);
+  std::string definition = DictionaryLookup::lookup(DICT_PATH, selectedText);
 
   // Save to vocabulary
   const std::string bookTitle = epub ? epub->getTitle() : std::string(tr(STR_UNKNOWN_BOOK));
-  VocabularyManager::addEntry(w.text, definition, bookTitle);
+  VocabularyManager::addEntry(selectedText, definition, bookTitle);
 
   // Brief visual feedback: show "Added!" toast
   const char* addedMsg = tr(STR_WORD_ADDED);
