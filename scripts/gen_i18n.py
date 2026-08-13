@@ -557,9 +557,21 @@ def generate_keys_header(
         "EN", "ES", "FR", "DE", "CS", "PT", "RU", "SV", "RO", "CA", "UK",
         "BE", "IT", "PL", "FI", "DA", "NL", "TR", "KK", "HU", "LT", "SI",
     ]
+    # This fork ships only a subset of the upstream languages. A code whose
+    # translation is not in this build resolves to EN so an old language.bin
+    # still lands on a valid enum value instead of breaking the build. The
+    # index positions stay frozen either way, which is what the migration
+    # actually depends on.
+    v1_resolved = [c if c in languages else "EN" for c in v1_codes]
+    dropped = [c for c in v1_codes if c not in languages]
+    if dropped:
+        lines.append(
+            "// Codes not shipped in this build fall back to EN: "
+            + ", ".join(dropped)
+        )
     lines.append("// V1 language.bin migration table (frozen enum order from 2f969a9)")
     lines.append("constexpr Language V1_LANGUAGES[] = {")
-    lines.append("    " + ", ".join(f"Language::{c}" for c in v1_codes) + ",")
+    lines.append("    " + ", ".join(f"Language::{c}" for c in v1_resolved) + ",")
     lines.append("};")
     lines.append(
         f"constexpr uint8_t V1_LANGUAGE_COUNT = {len(v1_codes)};"
