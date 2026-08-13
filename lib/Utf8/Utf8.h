@@ -4,180 +4,68 @@
 #include <string>
 #define REPLACEMENT_GLYPH 0xFFFD
 
-int utf8CodepointLen(unsigned char c);
 uint32_t utf8NextCodepoint(const unsigned char** string);
+// Appends a Unicode codepoint to a std::string in UTF-8 encoding.
+void utf8AppendCodepoint(uint32_t cp, std::string& out);
 // Remove the last UTF-8 codepoint from a std::string and return the new size.
 size_t utf8RemoveLastChar(std::string& str);
 // Truncate string by removing N UTF-8 codepoints from the end.
 void utf8TruncateChars(std::string& str, size_t numChars);
 
-// Returns true for CJK codepoints that should be treated as individual word tokens.
-// Korean (Hangul) is excluded — it uses spaces between words like Latin text.
-inline bool isCjkCodepoint(const uint32_t cp) {
-  if (cp >= 0x2E80 && cp <= 0x2FDF) return true;   // CJK Radicals, Kangxi Radicals
-  if (cp >= 0x3000 && cp <= 0x303F) return true;   // CJK Symbols and Punctuation
-  if (cp >= 0x3040 && cp <= 0x309F) return true;   // Hiragana
-  if (cp >= 0x30A0 && cp <= 0x30FF) return true;   // Katakana
-  if (cp >= 0x31F0 && cp <= 0x31FF) return true;   // Katakana Phonetic Extensions
-  if (cp >= 0x3400 && cp <= 0x4DBF) return true;   // CJK Extension A
-  if (cp >= 0x4E00 && cp <= 0x9FFF) return true;   // CJK Unified Ideographs
-  if (cp >= 0xF900 && cp <= 0xFAFF) return true;   // CJK Compatibility Ideographs
-  if (cp >= 0xFF00 && cp <= 0xFFEF) return true;   // Fullwidth Forms
-  return false;
-}
-
-// Horizontal stroke CJK characters that should NOT be advance-tightened.
-// Also used to skip tightening on the character immediately before them.
-inline bool isHorizontalStrokeChar(const uint32_t cp) {
-  switch (cp) {
-    case 0x30FC:  // ー katakana prolonged sound mark (chōon)
-    case 0x301C:  // 〜 wave dash
-    case 0xFF5E:  // ～ fullwidth tilde
-    case 0x2014:  // — em dash
-    case 0x2015:  // ― horizontal bar
-    case 0xFF0D:  // － fullwidth hyphen-minus
-      return true;
-    default:
-      return false;
-  }
-}
-
-// Punctuation that needs 90° clockwise rotation in vertical text mode.
-// Horizontal strokes become vertical.
-inline bool isVerticalRotatedPunctuation(const uint32_t cp) {
-  switch (cp) {
-    // Horizontal strokes → rotate to vertical
-    case 0x30FC:  // ー katakana prolonged sound mark
-    case 0x301C:  // 〜 wave dash
-    case 0xFF5E:  // ～ fullwidth tilde
-    case 0x2014:  // — em dash
-    case 0x2015:  // ― horizontal bar
-    case 0x2026:  // … horizontal ellipsis
-    case 0xFF0D:  // － fullwidth hyphen-minus
-    // CJK closing brackets → rotate 90° CW for vertical orientation
-    case 0x3009:  // 〉
-    case 0x300B:  // 》
-    case 0x300D:  // 」
-    case 0x300F:  // 』
-    case 0x3011:  // 】
-    case 0x3015:  // 〕
-    case 0x3017:  // 〗
-    case 0x3019:  // 〙
-    case 0x301B:  // 〛
-    case 0x003E:  // > ASCII greater-than
-    case 0xFF09:  // ）
-    case 0xFF1E:  // ＞ fullwidth greater-than
-    case 0xFF3D:  // ］
-    case 0xFF5D:  // ｝
-      return true;
-    default:
-      return false;
-  }
-}
-
-// Corner-style (L-shaped) brackets: CW rotation alone produces the correct vertical form.
-// Symmetric brackets (〈〉（）etc.) need mirroring before CW to get the right orientation.
-inline bool isCornerStyleBracket(const uint32_t cp) {
-  switch (cp) {
-    case 0x300C: case 0x300D:  // 「」
-    case 0x300E: case 0x300F:  // 『』
-      return true;
-    default:
-      return false;
-  }
-}
-
-// Mirror a bracket codepoint: swap opening↔closing for CW-rotated vertical rendering.
-// CW rotation reverses bracket orientation, so mirroring the pair before rotation
-// produces the correct vertical form (e.g., 〈→〉 CW = ∧, matching vertical ︿).
-inline uint32_t mirrorBracket(const uint32_t cp) {
-  // CJK brackets: consecutive pairs (even=opening, odd=closing)
-  if (cp >= 0x3008 && cp <= 0x301B) {
-    return cp ^ 1;
-  }
-  switch (cp) {
-    case 0x003C: return 0x003E;  // <→>
-    case 0x003E: return 0x003C;  // >→<
-    case 0xFF08: return 0xFF09;  // （→）
-    case 0xFF09: return 0xFF08;  // ）→（
-    case 0xFF1C: return 0xFF1E;  // ＜→＞
-    case 0xFF1E: return 0xFF1C;  // ＞→＜
-    case 0xFF3B: return 0xFF3D;  // ［→］
-    case 0xFF3D: return 0xFF3B;  // ］→［
-    case 0xFF5B: return 0xFF5D;  // ｛→｝
-    case 0xFF5D: return 0xFF5B;  // ｝→｛
-    default: return cp;
-  }
-}
-
-// Opening brackets that need 90° counter-clockwise rotation in vertical text mode.
-// This ensures they visually appear as opening brackets when rotated.
-inline bool isVerticalOpeningBracket(const uint32_t cp) {
-  switch (cp) {
-    case 0x003C:  // < ASCII less-than
-    case 0x3008:  // 〈
-    case 0x300A:  // 《
-    case 0x300C:  // 「
-    case 0x300E:  // 『
-    case 0x3010:  // 【
-    case 0x3014:  // 〔
-    case 0x3016:  // 〖
-    case 0x3018:  // 〘
-    case 0x301A:  // 〚
-    case 0xFF08:  // （
-    case 0xFF1C:  // ＜ fullwidth less-than
-    case 0xFF3B:  // ［
-    case 0xFF5B:  // ｛
-      return true;
-    default:
-      return false;
-  }
-}
-
-// Punctuation that needs repositioning (top-right offset) in vertical text mode.
-// These marks are drawn upright but shifted within the character cell.
-inline bool isVerticalRepositionedPunctuation(const uint32_t cp) {
-  switch (cp) {
-    case 0x3001:  // 、 ideographic comma
-    case 0x3002:  // 。 ideographic full stop
-    case 0xFF0C:  // ， fullwidth comma
-    case 0xFF0E:  // ． fullwidth full stop
-      return true;
-    default:
-      return false;
-  }
-}
-
-// Returns true if the string contains only ASCII digits and is 1-2 chars long.
-// Used for tate-chu-yoko (縦中横): short numbers rendered horizontally in vertical text.
-inline bool isShortNumber(const char* str) {
-  if (!str || !str[0]) return false;
-  if (str[0] < '0' || str[0] > '9') return false;
-  if (!str[1]) return true;  // single digit
-  if (str[1] < '0' || str[1] > '9') return false;
-  return str[2] == '\0';  // exactly 2 digits
-}
-
-// Returns true if the string contains only ASCII digits (3+ chars).
-// Used for long numbers rendered as individual upright digits in vertical text.
-inline bool isLongNumber(const char* str) {
-  if (!str || !str[0] || !str[1] || !str[2]) return false;  // need at least 3 chars
-  for (const char* p = str; *p; ++p) {
-    if (*p < '0' || *p > '9') return false;
-  }
-  return true;
-}
-
-// Returns true for fullwidth digit codepoints (０-９, U+FF10-U+FF19).
-// These are in the CJK Fullwidth Forms range but need special handling in vertical mode.
-inline bool isFullwidthDigit(const uint32_t cp) {
-  return cp >= 0xFF10 && cp <= 0xFF19;
-}
+// Canonical composition (NFC) for the Latin / Vietnamese range: precomposes a
+// base letter followed by combining diacritical mark(s) into a single codepoint.
+// Needed because the device fonts have no combining-mark positioning, so text
+// stored in NFD (e.g. some EPUB chapter titles) otherwise renders broken.
+std::string utf8ComposeNfc(const std::string& in);
 
 // Truncate a raw char buffer to the last complete UTF-8 codepoint boundary.
 // Returns the new length (<= len). If the buffer ends mid-sequence, the
 // incomplete trailing bytes are excluded.
 int utf8SafeTruncateBuffer(const char* buf, int len);
+
+// Returns true for CJK characters that allow line breaks on either side without hyphenation.
+// Covers CJK Unified Ideographs, Hiragana, Katakana, Hangul Syllables, CJK punctuation,
+// and fullwidth forms — the ranges where word boundaries are implicit per character.
+inline bool utf8IsCjkBreakable(const uint32_t cp) {
+  return (cp >= 0x1100 && cp <= 0x11FF)        // Hangul Jamo
+         || (cp >= 0x3000 && cp <= 0x303F)     // CJK Symbols and Punctuation
+         || (cp >= 0x3040 && cp <= 0x309F)     // Hiragana
+         || (cp >= 0x30A0 && cp <= 0x30FF)     // Katakana
+         || (cp >= 0x3130 && cp <= 0x318F)     // Hangul Compatibility Jamo
+         || (cp >= 0x3400 && cp <= 0x4DBF)     // CJK Extension A
+         || (cp >= 0x4E00 && cp <= 0x9FFF)     // CJK Unified Ideographs
+         || (cp >= 0xAC00 && cp <= 0xD7AF)     // Hangul Syllables
+         || (cp >= 0xD7B0 && cp <= 0xD7FF)     // Hangul Jamo Extended-B
+         || (cp >= 0xF900 && cp <= 0xFAFF)     // CJK Compatibility Ideographs
+         || (cp >= 0xFE30 && cp <= 0xFE4F)     // CJK Compatibility Forms
+         || (cp >= 0xFF01 && cp <= 0xFF60)     // Fullwidth Latin / Punctuation
+         || (cp >= 0xFF65 && cp <= 0xFFEF)     // Halfwidth Katakana / Hangul
+         || (cp >= 0x20000 && cp <= 0x2A6DF)   // CJK Extension B
+         || (cp >= 0x2A700 && cp <= 0x2B73F);  // CJK Extension C
+}
+
+// Returns true for any codepoint in a CJK script block (Han, Kana, Hangul, Bopomofo,
+// radicals, and CJK punctuation/compatibility/enclosed forms). Used for fallback font
+// selection — deliberately broader than utf8IsCjkBreakable, whose ranges are tuned to
+// implicit line-break opportunities and must not grow without rethinking layout.
+inline bool utf8IsCjkCodepoint(const uint32_t cp) {
+  return (cp >= 0x1100 && cp <= 0x11FF)        // Hangul Jamo
+         || (cp >= 0x2E80 && cp <= 0x2FDF)     // CJK Radicals Supplement, Kangxi Radicals
+         || (cp >= 0x3000 && cp <= 0x33FF)     // CJK punctuation, Kana, Bopomofo, Hangul Compat
+                                               // Jamo, Kanbun, strokes, enclosed + compat forms
+         || (cp >= 0x3400 && cp <= 0x4DBF)     // CJK Extension A
+         || (cp >= 0x4E00 && cp <= 0x9FFF)     // CJK Unified Ideographs
+         || (cp >= 0xA960 && cp <= 0xA97F)     // Hangul Jamo Extended-A
+         || (cp >= 0xAC00 && cp <= 0xD7FF)     // Hangul Syllables, Hangul Jamo Extended-B
+         || (cp >= 0xF900 && cp <= 0xFAFF)     // CJK Compatibility Ideographs
+         || (cp >= 0xFE10 && cp <= 0xFE1F)     // Vertical Forms
+         || (cp >= 0xFE30 && cp <= 0xFE4F)     // CJK Compatibility Forms
+         || (cp >= 0xFF01 && cp <= 0xFF60)     // Fullwidth Latin / Punctuation
+         || (cp >= 0xFF65 && cp <= 0xFFEF)     // Halfwidth Katakana / Hangul
+         || (cp >= 0x20000 && cp <= 0x2EBEF)   // CJK Extensions B-F
+         || (cp >= 0x2F800 && cp <= 0x2FA1F)   // CJK Compatibility Ideographs Supplement
+         || (cp >= 0x30000 && cp <= 0x323AF);  // CJK Extensions G-H
+}
 
 // Returns true for Unicode combining diacritical marks that should not advance the cursor.
 inline bool utf8IsCombiningMark(const uint32_t cp) {
