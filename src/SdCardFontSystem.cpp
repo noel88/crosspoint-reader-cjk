@@ -21,17 +21,31 @@ void snapFontPointSizeTo(const uint8_t availablePointSize) {
   SETTINGS.saveToFile();
 }
 
-// Built-in UI fonts and their physical point sizes (at 150 DPI, matching the
-// SD-font converter). Each is paired with a same-size SD fallback so CJK UI
-// text matches the surrounding Latin. See SdCardFontSystem::setupUiFallbacks.
+// Built-in UI fonts and the SD point size each falls back to for CJK.
+//
+// Upstream pairs every UI font with a same-size SD font (8/10/12) so CJK text
+// matches the surrounding Latin exactly. That costs three resident SD fonts.
+// A CJK family is far larger than a Latin one — tens of thousands of glyphs —
+// and SdCardFont keeps its prewarmed glyph cache only while free heap stays
+// above MINI_RETAIN_MIN_FREE_HEAP (40 KB). With three of them resident the
+// cache is dropped and rebuilt from the SD card on menu transitions, which is
+// what makes navigating the UI slow on this fork's CJK families.
+//
+// So all three point at ONE size. loadFamilyExtraSize() returns the already
+// loaded font when the size matches, so exactly one SD font stays resident.
+// The trade is visual: CJK in a 10/12 pt context renders at kUiFallbackPointSize
+// instead of matching its Latin neighbours. Raise this to 12 to favour looks
+// over headroom — it is the only value to change.
+constexpr uint8_t kUiFallbackPointSize = 8;
+
 struct UiFontSize {
   int fontId;
   uint8_t pointSize;
 };
 constexpr UiFontSize kUiFontSizes[] = {
-    {SMALL_FONT_ID, 8},
-    {UI_10_FONT_ID, 10},
-    {UI_12_FONT_ID, 12},
+    {SMALL_FONT_ID, kUiFallbackPointSize},
+    {UI_10_FONT_ID, kUiFallbackPointSize},
+    {UI_12_FONT_ID, kUiFallbackPointSize},
 };
 
 }  // namespace
