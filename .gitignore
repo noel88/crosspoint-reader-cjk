@@ -2,7 +2,6 @@
 .idea
 .DS_Store
 .vscode
-open-x4-sdk
 fs_
 lib/EpdFont/fontsrc
 lib/I18n/I18nKeys.h
@@ -36,3 +35,12 @@ lib/EpdFont/scripts/output/
 /dependencies.lock
 /sdkconfig.*
 sdkconfig.sticky
+
+# Locally flashed firmware images and font sources kept beside the checkout.
+# These are build outputs / large binaries, not sources — keep them on disk but
+# out of the history. The generated CJK UI font headers are produced by
+# lib/EpdFont/scripts, so they are regenerable too.
+/crosspoint-*.bin
+/fonts/*.otf
+/fonts/*.ttf
+lib/GfxRenderer/cjk_ui_font_*.h
