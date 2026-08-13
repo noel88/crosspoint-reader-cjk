@@ -4,7 +4,6 @@
 #include <string>
 #define REPLACEMENT_GLYPH 0xFFFD
 
-int utf8CodepointLen(unsigned char c);
 uint32_t utf8NextCodepoint(const unsigned char** string);
 // Appends a Unicode codepoint to a std::string in UTF-8 encoding.
 void utf8AppendCodepoint(uint32_t cp, std::string& out);
@@ -13,6 +12,9 @@ size_t utf8RemoveLastChar(std::string& str);
 // Truncate string by removing N UTF-8 codepoints from the end.
 void utf8TruncateChars(std::string& str, size_t numChars);
 
+// Canonical composition (NFC) for the Latin / Vietnamese range: precomposes a
+// base letter followed by combining diacritical mark(s) into a single codepoint.
+// Needed because the device fonts have no combining-mark positioning, so text
 // stored in NFD (e.g. some EPUB chapter titles) otherwise renders broken.
 std::string utf8ComposeNfc(const std::string& in);
 

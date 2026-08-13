@@ -5,7 +5,6 @@
 #include <GfxRenderer.h>
 #include <HalStorage.h>
 #include <I18n.h>
-#include <SdFontManager.h>
 #include <Serialization.h>
 #include <Utf8.h>
 
@@ -28,15 +27,6 @@ constexpr uint8_t CACHE_VERSION = 3;          // Increment when cache format cha
 void TxtReaderActivity::onEnter() {
   Activity::onEnter();
 
-  // Free any cached decompressed font groups (e.g. CJK UI fallback) to reclaim RAM
-  renderer.clearFontCache();
-
-  // Set READER SdFont as fallback for CJK glyph rendering in book content
-  SdFont* readerFont = SdFontManager::getInstance().getActiveFont(SdFontType::READER);
-  if (readerFont && readerFont->isLoaded()) {
-    renderer.setSdFontFallback(readerFont);
-  }
-
   if (!txt) {
     return;
   }
@@ -58,10 +48,6 @@ void TxtReaderActivity::onEnter() {
 
 void TxtReaderActivity::onExit() {
   Activity::onExit();
-
-  // Restore UI SdFont fallback for menu/settings rendering
-  SdFont* uiFont = SdFontManager::getInstance().getActiveFont(SdFontType::UI);
-  renderer.setSdFontFallback((uiFont && uiFont->isLoaded()) ? uiFont : nullptr);
 
   // Reset orientation back to portrait for the rest of the UI
   renderer.setOrientation(GfxRenderer::Orientation::Portrait);

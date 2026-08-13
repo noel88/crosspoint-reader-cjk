@@ -2,7 +2,6 @@
 #include <EpdFontFamily.h>
 #include <HalStorage.h>
 
-#include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
@@ -93,8 +92,6 @@ class TextBlock final : public Block {
   const std::vector<std::string>& getRubyTexts() const { return rubyTexts; }
 
   void render(const GfxRenderer& renderer, int fontId, int x, int y) const;
-  void collectCodepoints(std::vector<uint32_t>& out, size_t max) const;
-  void renderVertical(const GfxRenderer& renderer, int fontId, int x, int y) const;
   BlockType getType() override { return TEXT_BLOCK; }
   bool serialize(HalFile& file) const;
   static std::unique_ptr<TextBlock> deserialize(HalFile& file);
