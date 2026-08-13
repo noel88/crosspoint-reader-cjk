@@ -109,17 +109,20 @@ const fui::KeyboardLayout URL_LAYOUT{URL_ROWS, 5};
 const fui::KeyboardLayout URL_SHIFT_LAYOUT{URL_SHIFT_ROWS, 5};
 const fui::KeyboardLayout URL_SNIPPET_LAYOUT{URL_SNIP_ROWS, 4};
 
+// Matched on the ISO code rather than the Language enum: this fork ships only a
+// subset of the upstream translations, so Language::FR / DE / ES do not exist in
+// the generated enum and naming them would not compile. LANGUAGE_CODES is
+// generated for whatever languages are present, so this stays correct in both
+// directions — drop a language and its layout simply stops being reachable; add
+// one back and the layout returns without touching this file.
 fui::KeyboardLayoutId layoutForLanguage(const Language language) {
-  switch (language) {
-    case Language::FR:
-      return fui::KeyboardLayoutId::AzertyFr;
-    case Language::DE:
-      return fui::KeyboardLayoutId::QwertzDe;
-    case Language::ES:
-      return fui::KeyboardLayoutId::SpanishEs;
-    default:
-      return fui::KeyboardLayoutId::QwertyEn;
-  }
+  const auto idx = static_cast<size_t>(language);
+  if (idx >= static_cast<size_t>(Language::_COUNT)) return fui::KeyboardLayoutId::QwertyEn;
+  const char* code = LANGUAGE_CODES[idx];
+  if (strcmp(code, "FR") == 0) return fui::KeyboardLayoutId::AzertyFr;
+  if (strcmp(code, "DE") == 0) return fui::KeyboardLayoutId::QwertzDe;
+  if (strcmp(code, "ES") == 0) return fui::KeyboardLayoutId::SpanishEs;
+  return fui::KeyboardLayoutId::QwertyEn;
 }
 
 }  // namespace
