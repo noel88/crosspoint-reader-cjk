@@ -1,5 +1,6 @@
 _language_name: "简体中文"
 _language_code: "CHINESE_SIMPLIFIED"
+_order: "3"
 
 STR_CROSSPOINT: "CrossPoint"
 STR_BOOTING: "启动中"
@@ -335,4 +336,3 @@ STR_DEVICE_FROM_FORMAT: "  来自: %s"
 STR_SECTION_PREFIX: "段落 "
 STR_OPDS_SERVER_URL: "OPDS服务器地址"
 STR_SCREENSHOT_BUTTON: "截屏"
-STR_VERTICAL_READING: "竖排阅读 (CJK)"

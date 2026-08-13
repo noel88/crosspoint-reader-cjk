@@ -1,12 +1,16 @@
 #!python3
-import freetype
 import zlib
 import sys
 import re
 import math
 import argparse
 from collections import namedtuple
-from fontTools.ttLib import TTFont
+
+# Force UTF-8 stdout so that `python fontconvert.py … > foo.h` on Windows
+# (default cp1252) doesn't emit UTF-16 LE / replacement chars in the generated
+# header. Wrapped in a hasattr guard so it's a no-op on older Pythons.
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
 
 # Originally from https://github.com/vroland/epdiy
 
@@ -18,10 +22,11 @@ parser.add_argument("--2bit", dest="is2Bit", action="store_true", help="generate
 parser.add_argument("--additional-intervals", dest="additional_intervals", action="append", help="Additional code point intervals to export as min,max. This argument can be repeated.")
 parser.add_argument("--compress", dest="compress", action="store_true", help="Compress glyph bitmaps using DEFLATE with group-based compression.")
 parser.add_argument("--force-autohint", dest="force_autohint", action="store_true", help="Force FreeType auto-hinter instead of native font hinting. Improves stem width consistency for fonts with weak or no native TrueType hints.")
-parser.add_argument("--no-base-intervals", dest="no_base_intervals", action="store_true", help="Skip the default Latin/Cyrillic intervals and only use --additional-intervals.")
-parser.add_argument("--skip-kerning", dest="skip_kerning", action="store_true", help="Skip kerning pair extraction (useful for CJK fonts).")
-parser.add_argument("--skip-ligatures", dest="skip_ligatures", action="store_true", help="Skip ligature extraction (useful for CJK fonts).")
+parser.add_argument("--pnum", dest="pnum", action="store_true", help="Use proportional numerals (pnum OpenType feature) instead of default tabular figures. Reduces visual gaps between digits in running prose.")
 args = parser.parse_args()
+
+import freetype
+from fontTools.ttLib import TTFont
 
 GlyphProps = namedtuple("GlyphProps", ["width", "height", "advance_x", "left", "top", "data_length", "data_offset", "code_point"])
 
@@ -171,25 +176,79 @@ def chunks(l, n):
     for i in range(0, len(l), n):
         yield l[i:i + n]
 
+def extract_pnum_subs(font_path):
+    """Extract pnum (proportional figures) GSUB substitutions.
+
+    Parses the font's GSUB table for the 'pnum' feature, which replaces
+    tabular-width figure glyphs with proportional-width alternates.
+    Returns {original_glyph_name: substitute_glyph_name} or empty dict.
+    """
+    font = TTFont(font_path)
+    subs = {}
+    if 'GSUB' not in font:
+        font.close()
+        return subs
+    gsub = font['GSUB'].table
+    pnum_indices = set()
+    if gsub.FeatureList:
+        for fr in gsub.FeatureList.FeatureRecord:
+            if fr.FeatureTag == 'pnum':
+                pnum_indices.update(fr.Feature.LookupListIndex)
+    for li in pnum_indices:
+        lookup = gsub.LookupList.Lookup[li]
+        for st in lookup.SubTable:
+            actual = st
+            if lookup.LookupType == 7 and hasattr(st, 'ExtSubTable'):
+                actual = st.ExtSubTable
+            if hasattr(actual, 'mapping'):
+                subs.update(actual.mapping)
+    font.close()
+    return subs
+
+# Build proportional numeral glyph overrides when --pnum is active.
+# Maps (face_index, codepoint) -> freetype glyph index for the proportional alternate.
+pnum_glyph_overrides = {}
+pnum_kern_subs = {}  # face_index -> {original_glyph_name: substitute_glyph_name}
+if args.pnum:
+    for face_idx, font_path in enumerate(args.fontstack):
+        subs = extract_pnum_subs(font_path)
+        if not subs:
+            continue
+        pnum_kern_subs[face_idx] = subs
+        tt_font = TTFont(font_path)
+        cmap = tt_font.getBestCmap() or {}
+        glyph_order = tt_font.getGlyphOrder()
+        name_to_glyph_idx = {name: idx for idx, name in enumerate(glyph_order)}
+        count = 0
+        for cp, glyph_name in cmap.items():
+            if glyph_name in subs:
+                sub_name = subs[glyph_name]
+                sub_idx = name_to_glyph_idx.get(sub_name, 0)
+                if sub_idx > 0:
+                    pnum_glyph_overrides[(face_idx, cp)] = sub_idx
+                    count += 1
+        tt_font.close()
+        if count > 0:
+            print(f"pnum: {count} glyph substitutions from {font_path}", file=sys.stderr)
+
 def load_glyph(code_point):
     face_index = 0
     while face_index < len(font_stack):
         face = font_stack[face_index]
-        glyph_index = face.get_char_index(code_point)
+        glyph_index = pnum_glyph_overrides.get((face_index, code_point))
+        if glyph_index is None:
+            glyph_index = face.get_char_index(code_point)
         if glyph_index > 0:
             face.load_glyph(glyph_index, load_flags)
             return face
         face_index += 1
     return None
 
-if args.no_base_intervals:
-    unmerged_intervals = sorted(add_ints)
-else:
-    unmerged_intervals = sorted(intervals + add_ints)
+unmerged_intervals = sorted(intervals + add_ints)
 intervals = []
 unvalidated_intervals = []
 for i_start, i_end in unmerged_intervals:
-    if len(unvalidated_intervals) > 0 and i_start + 1 <= unvalidated_intervals[-1][1]:
+    if len(unvalidated_intervals) > 0 and i_start <= unvalidated_intervals[-1][1] + 1:
         unvalidated_intervals[-1] = (unvalidated_intervals[-1][0], max(unvalidated_intervals[-1][1], i_end))
         continue
     unvalidated_intervals.append((i_start, i_end))
@@ -392,23 +451,30 @@ def _extract_pairpos_subtable(subtable, glyph_to_cp, raw_kern):
                     key = (left_glyph, right_glyph)
                     raw_kern[key] = raw_kern.get(key, 0) + xa
 
-def extract_kerning_fonttools(font_path, codepoints, ppem):
+def extract_kerning_fonttools(font_path, codepoints, ppem, pnum_subs=None):
     """Extract kerning pairs from a font file using fonttools.
 
     Returns dict of {(leftCp, rightCp): pixel_adjust} for the given
     codepoints.  Values are scaled from font design units to integer
     pixels at ppem.
+
+    When pnum_subs is provided, substitute glyph names are also included
+    in the lookup so kern pairs referencing proportional alternates are found.
     """
     font = TTFont(font_path)
     units_per_em = font['head'].unitsPerEm
     cmap = font.getBestCmap() or {}
 
-    # Build glyph_name -> codepoint map (only for requested codepoints)
+    # Build glyph_name -> codepoint map (only for requested codepoints).
+    # When pnum is active, include both the original and substitute glyph
+    # names so kern pairs referencing either are captured.
     glyph_to_cp = {}
     for cp in codepoints:
         gname = cmap.get(cp)
         if gname:
             glyph_to_cp[gname] = cp
+            if pnum_subs and gname in pnum_subs:
+                glyph_to_cp[pnum_subs[gname]] = cp
 
     # Collect raw kerning values in font design units
     raw_kern = {}  # (left_glyph_name, right_glyph_name) -> design_units
@@ -458,13 +524,12 @@ def extract_kerning_fonttools(font_path, codepoints, ppem):
 ppem = size * 150.0 / 72.0
 
 kern_map = {}  # (leftCp, rightCp) -> adjust
-if args.skip_kerning:
-    print(f"kerning: skipped (--skip-kerning)", file=sys.stderr)
-else:
-    for face_idx, cps in face_idx_cps.items():
-        font_path = args.fontstack[face_idx]
-        kern_map.update(extract_kerning_fonttools(font_path, cps, ppem))
-    print(f"kerning: {len(kern_map)} pairs extracted", file=sys.stderr)
+for face_idx, cps in face_idx_cps.items():
+    font_path = args.fontstack[face_idx]
+    subs = pnum_kern_subs.get(face_idx) if args.pnum else None
+    kern_map.update(extract_kerning_fonttools(font_path, cps, ppem, pnum_subs=subs))
+
+print(f"kerning: {len(kern_map)} pairs extracted", file=sys.stderr)
 
 # --- Derive class-based kerning from pairs ---
 kern_left_classes = []   # list of (codepoint, classId)
@@ -572,7 +637,7 @@ def extract_ligatures_fonttools(font_path, codepoints):
         # Find lookup indices for ligature features.
         # Currently extracts 'liga' (standard) and 'rlig' (required) only.
         # To also extract discretionary or historical ligatures, add:
-        #   'dlig' - Discretionary Ligatures (e.g., ft, st in Bookerly)
+        #   'dlig' - Discretionary Ligatures (e.g., ft, st in Noto)
         #   'hlig' - Historical Ligatures (e.g., long-s+t in OpenDyslexic)
         # These are off by default in standard text renderers.
         LIGATURE_FEATURES = ('liga', 'rlig')
@@ -664,39 +729,36 @@ def extract_ligatures_fonttools(font_path, codepoints):
 
     return pairs
 
+ligature_codepoints = set(cp for cp in all_codepoints
+                          if not (COMBINING_MARKS_START <= cp <= COMBINING_MARKS_END))
+
+# Map ligature codepoints to the font-stack index that serves them
+lig_cp_to_face_idx = {}
+for cp in ligature_codepoints:
+    for face_idx, f in enumerate(font_stack):
+        if f.get_char_index(cp) > 0:
+            lig_cp_to_face_idx[cp] = face_idx
+            break
+
+# Group by face index
+lig_face_idx_cps = {}
+for cp, fi in lig_cp_to_face_idx.items():
+    lig_face_idx_cps.setdefault(fi, set()).add(cp)
+
 ligature_pairs = []
-if args.skip_ligatures:
-    print(f"ligatures: skipped (--skip-ligatures)", file=sys.stderr)
-else:
-    ligature_codepoints = set(cp for cp in all_codepoints
-                              if not (COMBINING_MARKS_START <= cp <= COMBINING_MARKS_END))
+for face_idx, cps in lig_face_idx_cps.items():
+    font_path = args.fontstack[face_idx]
+    ligature_pairs.extend(extract_ligatures_fonttools(font_path, cps))
 
-    # Map ligature codepoints to the font-stack index that serves them
-    lig_cp_to_face_idx = {}
-    for cp in ligature_codepoints:
-        for face_idx, f in enumerate(font_stack):
-            if f.get_char_index(cp) > 0:
-                lig_cp_to_face_idx[cp] = face_idx
-                break
-
-    # Group by face index
-    lig_face_idx_cps = {}
-    for cp, fi in lig_cp_to_face_idx.items():
-        lig_face_idx_cps.setdefault(fi, set()).add(cp)
-
-    for face_idx, cps in lig_face_idx_cps.items():
-        font_path = args.fontstack[face_idx]
-        ligature_pairs.extend(extract_ligatures_fonttools(font_path, cps))
-
-    # Deduplicate (keep first occurrence) and sort
-    seen_lig_keys = set()
-    unique_ligature_pairs = []
-    for packed, lig_cp in ligature_pairs:
-        if packed not in seen_lig_keys:
-            seen_lig_keys.add(packed)
-            unique_ligature_pairs.append((packed, lig_cp))
-    ligature_pairs = sorted(unique_ligature_pairs, key=lambda p: p[0])
-    print(f"ligatures: {len(ligature_pairs)} pairs extracted", file=sys.stderr)
+# Deduplicate (keep first occurrence) and sort
+seen_lig_keys = set()
+unique_ligature_pairs = []
+for packed, lig_cp in ligature_pairs:
+    if packed not in seen_lig_keys:
+        seen_lig_keys.add(packed)
+        unique_ligature_pairs.append((packed, lig_cp))
+ligature_pairs = sorted(unique_ligature_pairs, key=lambda p: p[0])
+print(f"ligatures: {len(ligature_pairs)} pairs extracted", file=sys.stderr)
 
 compress = args.compress
 
@@ -737,6 +799,15 @@ if compress:
     # are grouped together for efficient LRU caching on the embedded target.
     # Since glyphs are in codepoint order, glyphs in the same Unicode block
     # are contiguous in the array and form natural groups.
+    #
+    # On top of script boundaries, a hard size cap (GROUP_MAX_UNCOMPRESSED_BYTES)
+    # is applied: if adding the next glyph would push the uncompressed group
+    # size over the cap, the group is closed and a new one started with the
+    # same script ID. This bounds the embedded decompressor's transient
+    # malloc regardless of font density (CJK, Vietnamese, user-supplied
+    # fonts with large Unicode blocks). Without it, a single dense script
+    # group can balloon past what fits in a transient page-decompress
+    # allocation on the device.
     SCRIPT_GROUP_RANGES = [
         (0x0000, 0x007F),   # ASCII
         (0x0080, 0x00FF),   # Latin-1 Supplement
@@ -750,43 +821,14 @@ if compress:
         (0x20A0, 0x20CF),   # Currency Symbols
         (0x2190, 0x21FF),   # Arrows
         (0x2200, 0x22FF),   # Math Operators
-        (0x3000, 0x303F),   # CJK Punctuation
-        (0x3040, 0x309F),   # Hiragana
-        (0x30A0, 0x30FF),   # Katakana
-        (0x4E00, 0x51FF),   # CJK Ideographs Block 1
-        (0x5200, 0x55FF),   # CJK Ideographs Block 2
-        (0x5600, 0x59FF),   # CJK Ideographs Block 3
-        (0x5A00, 0x5DFF),   # CJK Ideographs Block 4
-        (0x5E00, 0x61FF),   # CJK Ideographs Block 5
-        (0x6200, 0x65FF),   # CJK Ideographs Block 6
-        (0x6600, 0x69FF),   # CJK Ideographs Block 7
-        (0x6A00, 0x6DFF),   # CJK Ideographs Block 8
-        (0x6E00, 0x71FF),   # CJK Ideographs Block 9
-        (0x7200, 0x75FF),   # CJK Ideographs Block 10
-        (0x7600, 0x79FF),   # CJK Ideographs Block 11
-        (0x7A00, 0x7DFF),   # CJK Ideographs Block 12
-        (0x7E00, 0x81FF),   # CJK Ideographs Block 13
-        (0x8200, 0x85FF),   # CJK Ideographs Block 14
-        (0x8600, 0x89FF),   # CJK Ideographs Block 15
-        (0x8A00, 0x8DFF),   # CJK Ideographs Block 16
-        (0x8E00, 0x91FF),   # CJK Ideographs Block 17
-        (0x9200, 0x95FF),   # CJK Ideographs Block 18
-        (0x9600, 0x99FF),   # CJK Ideographs Block 19
-        (0x9A00, 0x9FFF),   # CJK Ideographs Block 20
-        (0xAC00, 0xAFFF),   # Hangul Syllables Block 1
-        (0xB000, 0xB3FF),   # Hangul Syllables Block 2
-        (0xB400, 0xB7FF),   # Hangul Syllables Block 3
-        (0xB800, 0xBBFF),   # Hangul Syllables Block 4
-        (0xBC00, 0xBFFF),   # Hangul Syllables Block 5
-        (0xC000, 0xC3FF),   # Hangul Syllables Block 6
-        (0xC400, 0xC7FF),   # Hangul Syllables Block 7
-        (0xC800, 0xCBFF),   # Hangul Syllables Block 8
-        (0xCC00, 0xCFFF),   # Hangul Syllables Block 9
-        (0xD000, 0xD3FF),   # Hangul Syllables Block 10
-        (0xD400, 0xD7AF),   # Hangul Syllables Block 11
         (0xFB00, 0xFB06),   # Alphabetic Presentation Forms (ligatures)
         (0xFFFD, 0xFFFD),   # Replacement Character
     ]
+
+    # 64 KB cap: large enough to hold any single built-in script group with
+    # headroom, small enough to be a comfortable transient malloc on the
+    # ESP32-C3.
+    GROUP_MAX_UNCOMPRESSED_BYTES = 65536
 
     def get_script_group(code_point):
         for i, (start, end) in enumerate(SCRIPT_GROUP_RANGES):
@@ -798,49 +840,37 @@ if compress:
     current_group_id = None
     group_start = 0
     group_count = 0
+    group_uncompressed = 0
 
-    for i, (props, packed) in enumerate(all_glyphs):
+    for i, (props, _) in enumerate(all_glyphs):
         sg = get_script_group(props.code_point)
-        if sg != current_group_id:
+        # Use the byte-aligned size (4-pixel-aligned row stride) rather than
+        # the packed length, since the decompressor consumes byte-aligned
+        # buffers. Empty glyphs contribute zero.
+        glyph_aligned_size = (((props.width + 3) // 4) * props.height
+                              if props.width > 0 and props.height > 0 else 0)
+        if glyph_aligned_size > GROUP_MAX_UNCOMPRESSED_BYTES:
+            raise ValueError(
+                f"Glyph {i} (code point U+{props.code_point:04X}) byte-aligned size "
+                f"{glyph_aligned_size} exceeds GROUP_MAX_UNCOMPRESSED_BYTES="
+                f"{GROUP_MAX_UNCOMPRESSED_BYTES}. Consider: (1) increasing GROUP_MAX_UNCOMPRESSED_BYTES, "
+                f"(2) reducing font size, or (3) excluding this codepoint."  
+            )
+        size_overflow = group_uncompressed + glyph_aligned_size > GROUP_MAX_UNCOMPRESSED_BYTES
+
+        if sg != current_group_id or size_overflow:
             if group_count > 0:
                 groups.append((group_start, group_count))
             current_group_id = sg
             group_start = i
             group_count = 1
+            group_uncompressed = glyph_aligned_size
         else:
             group_count += 1
+            group_uncompressed += glyph_aligned_size
 
     if group_count > 0:
         groups.append((group_start, group_count))
-
-    # Split large groups so each group's uncompressed bitmap fits in limited RAM.
-    # Target max ~6KB uncompressed per group (safe for ESP32-C3 with ~9KB MaxAlloc).
-    MAX_GROUP_UNCOMPRESSED = 6144
-    split_groups = []
-    for first_idx, count in groups:
-        # Estimate uncompressed size for this group
-        total_size = sum(all_glyphs[i][1].__len__() if isinstance(all_glyphs[i][1], (bytes, bytearray))
-                         else len(all_glyphs[i][1]) for i in range(first_idx, first_idx + count))
-        if total_size <= MAX_GROUP_UNCOMPRESSED:
-            split_groups.append((first_idx, count))
-        else:
-            # Split into sub-groups that fit within the limit
-            sub_start = first_idx
-            sub_size = 0
-            sub_count = 0
-            for i in range(first_idx, first_idx + count):
-                glyph_size = len(all_glyphs[i][1]) if isinstance(all_glyphs[i][1], (bytes, bytearray)) else len(all_glyphs[i][1])
-                if sub_count > 0 and sub_size + glyph_size > MAX_GROUP_UNCOMPRESSED:
-                    split_groups.append((sub_start, sub_count))
-                    sub_start = i
-                    sub_size = glyph_size
-                    sub_count = 1
-                else:
-                    sub_size += glyph_size
-                    sub_count += 1
-            if sub_count > 0:
-                split_groups.append((sub_start, sub_count))
-    groups = split_groups
 
     # Compress each group
     compressed_groups = []  # list of (compressed_bytes, uncompressed_size, glyph_count, first_glyph_index)

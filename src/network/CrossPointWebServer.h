@@ -11,11 +11,10 @@
 
 // Structure to hold file information
 struct FileInfo {
-  static constexpr size_t NAME_BUFFER_SIZE = 500;
-  char name[NAME_BUFFER_SIZE] = {0};
-  size_t size = 0;
-  bool isEpub = false;
-  bool isDirectory = false;
+  String name;
+  size_t size;
+  bool isEpub;
+  bool isDirectory;
 };
 
 class CrossPointWebServer {
@@ -32,7 +31,7 @@ class CrossPointWebServer {
 
   // Used by POST upload handler
   struct UploadState {
-    FsFile file;
+    HalFile file;
     String fileName;
     String path = "/";
     size_t size = 0;
@@ -73,6 +72,7 @@ class CrossPointWebServer {
   std::unique_ptr<WebServer> server = nullptr;
   std::unique_ptr<WebSocketsServer> wsServer = nullptr;
   bool running = false;
+  bool watchdogTaskRegistered = false;
   bool apMode = false;  // true when running in AP mode, false for STA mode
   uint16_t port = 80;
   uint16_t wsPort = 81;  // WebSocket port
@@ -85,7 +85,7 @@ class CrossPointWebServer {
   void abortWsUpload(const char* tag);
 
   // File scanning
-  void scanFiles(const char* path, const std::function<void(const FileInfo&)>& callback) const;
+  void scanFiles(const char* path, const std::function<void(FileInfo)>& callback) const;
   String formatFileSize(size_t bytes) const;
   bool isEpubFile(const String& filename) const;
 
@@ -109,9 +109,35 @@ class CrossPointWebServer {
   void handleGetSettings() const;
   void handlePostSettings();
 
-  // WiFi credential management (CJK)
-  void handleWifiScan() const;
-  void handleWifiSave() const;
-  void handleWifiList() const;
-  void handleWifiDelete() const;
+  // Font management handlers
+  void handleFontsPage() const;
+  void handleFontList() const;
+  void handleFontUpload();
+  void handleFontUploadData();
+  void handleFontDelete();
+
+  // Font upload state
+  struct FontUploadState {
+    HalFile file;
+    std::string familyName;
+    std::string filePath;
+    bool valid = false;
+    bool magicChecked = false;
+    size_t bytesWritten = 0;
+    static constexpr size_t BUFFER_SIZE = 4096;
+    std::vector<uint8_t> buffer;
+    size_t bufferPos = 0;
+
+    FontUploadState() { buffer.resize(BUFFER_SIZE); }
+  } fontUpload;
+
+  // OPDS server handlers
+  void handleGetOpdsServers() const;
+  void handlePostOpdsServer();
+  void handleDeleteOpdsServer();
+
+  // Wi-Fi credential handlers
+  void handleGetWifiNetworks() const;
+  void handlePostWifiNetwork();
+  void handleDeleteWifiNetwork();
 };
