@@ -1,5 +1,6 @@
 _language_name: "繁體中文"
 _language_code: "CHINESE_TRADITIONAL"
+_order: "4"
 
 STR_CROSSPOINT: "CrossPoint"
 STR_BOOTING: "啟動中"
@@ -334,4 +335,3 @@ STR_SCREENSHOT_BUTTON: "截圖"
 STR_UI_ORIENTATION: "UI方向"
 STR_FIRST_LINE_INDENT: "首行縮排"
 STR_INVERT_IMAGES: "圖片反色"
-STR_VERTICAL_READING: "直排閱讀 (CJK)"
